@@ -108,18 +108,30 @@ would be silently transposed.
 
 ## Notes
 
+`docs/physics.md` is the physics documentation: the equation and its units, the
+splitting and what a "step" means on a time axis, the finite-difference dispersion and
+the DFT-index-to-momentum map, why a quantics train compresses this problem, the two
+paper configurations read as physics, and an error budget. Its main finding is that the
+**momentum low-pass, not the bond dimension, is the leading approximation** in the 1D
+run — the cutoff search calibrates on a Gaussian trial state and lands a factor of six
+below the momentum the lattice drives, and the renormalisation after every kinetic step
+hides the resulting loss completely.
+
 `PORTING_NOTES.md` records the conventions (several of which are inconsistent in the
 original and are preserved deliberately), two silent-failure bugs found along the way,
 and the benchmark that decided where JAX does and does not belong here.
 `QUTECIPY_FINDINGS.md` is a standalone write-up of the two `qutecipy` bugs, with
 reproducers, for reporting upstream.
 
-Two things worth knowing before trusting a number out of this code:
+Three things worth knowing before trusting a number out of this code:
 
 - **TCI's reported error can be meaningless.** It is estimated on the pivots TCI itself
   chose, so it says nothing about a region no pivot reached. On the paper's own initial
   state it reports 7e-11 while missing half the wave function. Use `tt.max_error` to
   check against an independent sample.
+- **A converged norm means nothing.** The kinetic step's low-pass filter is not
+  norm-preserving, and the state is renormalised immediately after every application,
+  so the reported norm is 1.000000 whatever the filter discarded. See `docs/physics.md`.
 - **Position-operator observables are tolerance-limited.** A quantics MPO for `x²` is
   built to a tolerance *relative to* `max|x²|`, which on a box of half-width 500 is
   2.5e5 — so `tol=1e-6` buys an absolute accuracy of ~0.25 against an expectation value
