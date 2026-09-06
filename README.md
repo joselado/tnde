@@ -108,10 +108,12 @@ would be silently transposed.
 
 ## Notes
 
-`docs/physics.md` is the physics documentation: the equation and its units, the
-splitting and what a "step" means on a time axis, the finite-difference dispersion and
-the DFT-index-to-momentum map, why a quantics train compresses this problem, the two
-paper configurations read as physics, and an error budget. Its main finding is that the
+`docs/guide.tex` is the physics user guide: the equation and its units, the splitting
+and what a "step" means on a time axis, the finite-difference dispersion and the
+DFT-index-to-momentum map, why a quantics train compresses this problem, the two paper
+configurations read as physics, and an error budget. Build it with
+`cd docs && pdflatex guide.tex && pdflatex guide.tex` (twice, for the table of
+contents). Its main finding is that the
 **momentum low-pass, not the bond dimension, is the leading approximation** in the 1D
 run — the cutoff search calibrates on a Gaussian trial state and lands a factor of six
 below the momentum the lattice drives, and the renormalisation after every kinetic step
@@ -131,7 +133,7 @@ Three things worth knowing before trusting a number out of this code:
   check against an independent sample.
 - **A converged norm means nothing.** The kinetic step's low-pass filter is not
   norm-preserving, and the state is renormalised immediately after every application,
-  so the reported norm is 1.000000 whatever the filter discarded. See `docs/physics.md`.
+  so the reported norm is 1.000000 whatever the filter discarded. See `docs/guide.tex`.
 - **Position-operator observables are tolerance-limited.** A quantics MPO for `x²` is
   built to a tolerance *relative to* `max|x²|`, which on a box of half-width 500 is
   2.5e5 — so `tol=1e-6` buys an absolute accuracy of ~0.25 against an expectation value

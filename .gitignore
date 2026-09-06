@@ -9,3 +9,8 @@ opcache/
 __pycache__/
 *.pyc
 Runs/
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.pdf
