@@ -24,16 +24,10 @@ where
 * **$N$ is a local nonlinearity** — at each point an ODE in $u$ alone, such as
   $-ig|u|^2u$, $ru(1-u)$, $u-u^3$, or any coupling between components.
 
-Ready-made equations (`tnde.equations`):
-
-| | equation |
-|---|---|
-| `schrodinger`, `gross_pitaevskii`, `nonlinear_schrodinger` | $i\partial_t\psi = -\tfrac{1}{2m}\nabla^2\psi + V\psi + f(\lvert\psi\rvert^2)\psi$, real or imaginary time |
-| `coupled_gross_pitaevskii` | a multi-component condensate with interaction matrix $G_{ab}$ |
-| `heat`, `fractional_diffusion`, `advection_diffusion` | linear transport |
-| `fisher_kpp`, `allen_cahn` | scalar reaction–diffusion |
-| `complex_ginzburg_landau` | $\partial_t A = A + (1+ib)\nabla^2A - (1+ic)\lvert A\rvert^2A$ |
-| `gray_scott`, `fitzhugh_nagumo` | two-species reaction–diffusion |
+The ready-made equations in `tnde.equations` — Schrödinger, Gross–Pitaevskii, nonlinear
+Schrödinger, coupled Gross–Pitaevskii, heat, fractional diffusion, Fisher–KPP, Allen–Cahn,
+complex Ginzburg–Landau, Gray–Scott, FitzHugh–Nagumo and advection–diffusion — are
+written out one by one under [Equations](#equations).
 
 Everything is built from three callables, so an equation not on the list is one
 `Equation(linear=..., potential=..., nonlinear=...)` away.
@@ -91,6 +85,184 @@ Worked examples, each checked against a dense reference:
 | `examples/advection_diffusion_2d.py` | a Gaussian on a 4096² grid against the exact solution — the case the representation is for |
 | `examples/allen_cahn_droplet_2d.py` | a droplet shrinking by curvature flow — the case it is *not* for, kept to show the cost |
 | `examples/reproduce_paper_1d.py`, `reproduce_paper_2d.py` | the Gross–Pitaevskii benchmarks (see below) |
+
+## Equations
+
+Every preset below is an `Equation` in the form $\partial_t u = \ell(-i\nabla)u + p(x)u + N(u)$
+of the introduction. The linear and potential factors of a step are exact; the local
+factor is a closed-form flow map wherever the local ODE has one — one function
+evaluation per point and no time-stepping error — and classical RK4 otherwise
+(`rk_substeps` sub-steps). All of them work unchanged in one, two or three dimensions:
+$\nabla^2$ is $-|k|^2$ in however many components $k$ has.
+
+### Schrödinger
+
+`equations.schrodinger(V=None, m=1.0, hbar=1.0, kcut=None, beta=None)`
+
+$$i\hbar\,\partial_t\psi = -\frac{\hbar^2}{2m}\nabla^2\psi + V(x)\,\psi$$
+
+A quantum particle of mass $m$ in the potential $V$: $|\psi|^2$ is the probability
+density, and the norm is conserved. Here $\ell = -i\hbar k^2/2m$ and $p = -iV/\hbar$,
+with no nonlinear step. The kinetic propagator $e^{-ihk^2/2m}$ is oscillatory and
+has no low-rank train on a fine grid, so the equation takes a momentum cutoff `kcut`
+(see *Momentum windows* under [How it works](#how-it-works)).
+
+### Gross–Pitaevskii
+
+`equations.gross_pitaevskii(V=None, g=0.0, m=1.0, kcut=None, beta=None, imaginary_time=False)`
+
+$$i\,\partial_t\psi = -\frac{1}{2m}\nabla^2\psi + V(x)\,\psi + g\,|\psi|^2\psi$$
+
+The mean-field equation of a dilute Bose–Einstein condensate ($\hbar = 1$): $\psi$ is
+the condensate wavefunction, $|\psi|^2$ the density and $g$ the contact interaction,
+repulsive for $g > 0$. It conserves the norm and the energy
+$E = \int \tfrac{1}{2m}|\nabla\psi|^2 + V|\psi|^2 + \tfrac{g}{2}|\psi|^4$. The local
+ODE $i\dot\psi = g|\psi|^2\psi$ leaves $|\psi|$ constant, so its flow is the exact
+phase rotation $\psi \to e^{-ig|\psi|^2h}\psi$.
+
+With `imaginary_time=True` the time is rotated, $t \to -i\tau$,
+
+$$\partial_\tau\psi = \frac{1}{2m}\nabla^2\psi - V(x)\,\psi - g\,|\psi|^2\psi,$$
+
+and $\psi$ is renormalised to unit norm after every step. Each eigencomponent decays as
+$e^{-E\tau}$, so any initial state relaxes onto the ground state of the mean-field
+Hamiltonian — the Thomas–Fermi profile in a trap when $g$ is large. The local flow is
+again exact, $\psi \to \psi/\sqrt{1 + 2g|\psi|^2 h}$, since $|\psi|^2$ obeys
+$\partial_\tau|\psi|^2 = -2g|\psi|^4$.
+
+### Nonlinear Schrödinger
+
+`equations.nonlinear_schrodinger(f, V=None, m=1.0, kcut=None, beta=None)`
+
+$$i\,\partial_t\psi = -\frac{1}{2m}\nabla^2\psi + V(x)\,\psi + f\big(|\psi|^2\big)\,\psi$$
+
+Any real, density-dependent nonlinearity: cubic–quintic $f(n) = g_1 n + g_2 n^2$,
+saturable $f(n) = n/(1+n)$ (photorefractive media), the Lee–Huang–Yang correction
+$f(n) = gn + \gamma n^{3/2}$ of quantum droplets, or a focusing $f(n) = -gn$ for
+solitons in optical fibres. Because $f$ is real the density is unchanged by the local
+ODE, and its flow is the exact phase rotation $\psi \to e^{-if(|\psi|^2)h}\psi$.
+
+### Coupled Gross–Pitaevskii
+
+`equations.coupled_gross_pitaevskii(G, V=None, m=1.0, kcut=None, beta=None, imaginary_time=False, rk_substeps=1)`
+
+$$i\,\partial_t\psi_a = -\frac{1}{2m}\nabla^2\psi_a + V_a(x)\,\psi_a + \sum_b G_{ab}\,|\psi_b|^2\,\psi_a$$
+
+A condensate with several components — a two-species mixture, or the hyperfine
+levels of a spinor gas. $G_{aa}$ are the intra-species and $G_{ab}$ the inter-species
+interactions; `V` is one potential for all components or one per component. Two
+species are miscible when $G_{12}^2 < G_{11}G_{22}$ and phase-separate otherwise. Every
+$|\psi_b|$ is constant along the local ODE, so in real time the local step is the exact
+phase rotation $\psi_a \to \exp\!\big(-ih\sum_b G_{ab}|\psi_b|^2\big)\psi_a$.
+
+With `imaginary_time=True` every component is renormalised separately after each
+step, so the populations $N_a = \int|\psi_a|^2$ are held fixed and the run relaxes to
+the ground state of a mixture with those populations. The densities then obey the
+Lotka–Volterra-type system $\partial_\tau n_a = -2n_a\sum_b G_{ab}n_b$, which has no
+closed form, so that local step is RK4.
+
+### Heat
+
+`equations.heat(D=1.0, source=None, rate=None)`
+
+$$\partial_t u = D\,\nabla^2 u + r(x)\,u + S(u, x, t)$$
+
+Diffusion with an optional spatially varying linear rate $r(x)$ (growth or decay that
+depends on position) and an optional local source $S$. The diffusive part is the exact
+multiplier $e^{-hDk^2}$; $r$ is the potential step, and `source` is the general way to
+write a reaction–diffusion equation not among the presets, integrated by RK4.
+
+### Fractional diffusion
+
+`equations.fractional_diffusion(alpha, D=1.0)`
+
+$$\partial_t u = -D\,(-\nabla^2)^{\alpha/2}\,u, \qquad \ell(k) = -D\,|k|^\alpha$$
+
+Diffusion driven by Lévy flights, jumps drawn from a heavy-tailed distribution. For
+$\alpha < 2$ the propagator is a Lévy stable law with power-law tails
+$\sim |x|^{-1-\alpha}$ and the width grows as $t^{1/\alpha}$, faster than the
+$t^{1/2}$ of ordinary diffusion, which is recovered at $\alpha = 2$; $\alpha > 2$ is
+hyperdiffusion, $\alpha = 4$ the hyperviscosity of turbulence models. The operator is
+non-local in real space and a plain multiplier in momentum space, where the solver
+applies it exactly.
+
+### Fisher–KPP
+
+`equations.fisher_kpp(D=1.0, r=1.0)`
+
+$$\partial_t u = D\,\nabla^2 u + r\,u\,(1 - u)$$
+
+A population, gene or chemical species spreading by diffusion while growing
+logistically towards its carrying capacity $u = 1$. The empty state $u = 0$ is unstable
+and is invaded by a front travelling at the speed $c = 2\sqrt{rD}$, the Fisher–KPP
+speed, with a profile of width $\sim\sqrt{D/r}$. The local ODE is the logistic
+equation, with the exact flow $u \to u/\big(u + (1-u)e^{-rh}\big)$.
+
+### Allen–Cahn
+
+`equations.allen_cahn(eps=1.0)`
+
+$$\partial_t u = \varepsilon\,\nabla^2 u + u - u^3$$
+
+Phase ordering with a non-conserved order parameter: the gradient flow of the
+Ginzburg–Landau free energy $F = \int \tfrac{\varepsilon}{2}|\nabla u|^2 + \tfrac14(1-u^2)^2$.
+The two phases $u = \pm1$ are separated by walls of width $\sim\sqrt{\varepsilon}$
+that move by their own curvature, so domains coarsen and a circular droplet of radius
+$r$ shrinks as $r^2 = r_0^2 - 2\varepsilon t$. The local ODE $\dot u = u - u^3$ has the
+exact flow $u \to u/\sqrt{u^2 + (1-u^2)e^{-2h}}$.
+
+### Complex Ginzburg–Landau
+
+`equations.complex_ginzburg_landau(b=0.0, c=0.0)`
+
+$$\partial_t A = A + (1 + ib)\,\nabla^2 A - (1 + ic)\,|A|^2 A$$
+
+The normal form of an extended system just past a Hopf bifurcation: $A$ is the
+complex amplitude of the oscillation, $b$ the linear dispersion and $c$ the
+nonlinear frequency shift. $b = c = 0$ is the relaxational real Ginzburg–Landau
+equation; plane waves are Benjamin–Feir unstable when $1 + bc < 0$, giving phase
+turbulence and defect chaos. The linear growth $A$ goes into the
+multiplier, $\ell(k) = 1 - (1+ib)k^2$, and the local ODE $\dot A = -(1+ic)|A|^2A$ has the
+exact flow $A \to A\,(1 + 2|A|^2 h)^{-(1+ic)/2}$: the modulus follows
+$|A|^2 \to |A|^2/(1 + 2|A|^2h)$ and the phase turns by $-\tfrac{c}{2}\ln(1 + 2|A|^2h)$.
+
+### Gray–Scott
+
+`equations.gray_scott(Du=2e-5, Dv=1e-5, F=0.04, k=0.06, rk_substeps=1)`
+
+$$\partial_t u = D_u\nabla^2 u - u v^2 + F\,(1 - u), \qquad
+\partial_t v = D_v\nabla^2 v + u v^2 - (F + k)\,v$$
+
+The autocatalytic reaction $U + 2V \to 3V$, $V \to P$ in a reactor fed with $U$ at
+rate $F$, with $k$ the decay rate of $V$ and $D_u > D_v$. Depending on $(F, k)$ it forms
+spots, stripes, labyrinths or self-replicating spots — the classic Pearson
+patterns. The local ODE has no closed form and is integrated by RK4.
+
+### FitzHugh–Nagumo
+
+`equations.fitzhugh_nagumo(Du=1.0, Dv=0.0, a=0.1, eps=0.01, gamma=1.0, rk_substeps=1)`
+
+$$\partial_t u = D_u\nabla^2 u + u\,(1 - u)(u - a) - v, \qquad
+\partial_t v = D_v\nabla^2 v + \varepsilon\,(u - \gamma v)$$
+
+An excitable medium: $u$ is the fast activator (a membrane voltage), $v$ the slow
+recovery variable, $\varepsilon \ll 1$ the separation of their time scales and $a$ the
+excitation threshold. A perturbation above $a$ triggers a large excursion before the
+medium recovers, and the equation supports travelling pulses and spiral waves — the
+model of nerve conduction and of cardiac tissue. The local ODE is integrated by RK4.
+
+### Advection–diffusion
+
+`equations.advection_diffusion(velocity, D=0.0)`
+
+$$\partial_t u = -\,\mathbf{c}\cdot\nabla u + D\,\nabla^2 u, \qquad
+\ell(k) = -i\,\mathbf{c}\cdot\mathbf{k} - D\,|k|^2$$
+
+A passive scalar carried by a uniform flow $\mathbf{c}$ while diffusing — a tracer in
+a stream, heat in a moving fluid. Entirely linear: a step is one exact multiplier, and
+a Gaussian stays Gaussian with its centre moving at $\mathbf{c}$ and its variance
+growing as $2Dt$. With $D = 0$ it is pure transport, which on the periodic grid wraps
+around the box.
 
 ## How it works
 
