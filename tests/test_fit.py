@@ -4,14 +4,17 @@ Two things are checked: that it agrees with the exact product (compressed global
 and that it is much faster than forming that product when the MPO's rank is large --
 which is the only reason it exists.
 """
+import os
 import sys
 import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 from qutecipy import contract
 from qutecipy.tensortrain.core import subtract
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import evolve2d, fit
 from tnde.fourier import fourier_mpo
 

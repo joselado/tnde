@@ -12,11 +12,14 @@ dense codes share no machinery at all.
 
 The comparison is up to a global phase, which the algorithm does not fix.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import dense, evolve1d, tt
 
 R, XMIN, XMAX, DT = 12, -40.0, 40.0, 0.02

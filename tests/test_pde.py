@@ -10,11 +10,14 @@ The 2D and 3D cases are deliberately *anisotropic* (unequal box lengths, unequal
 velocities): the Fourier transform of an interleaved train returns the variables in
 reverse order, and a symmetric test would pass with that order handled wrongly.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import equations, pde, reference, tt
 from tnde.grid import Grid
 from tnde.pde import Equation

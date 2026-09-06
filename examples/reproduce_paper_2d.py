@@ -8,12 +8,15 @@ Usage:  python examples/reproduce_paper_2d.py [nsteps]
 There is no committed 2D reference data in the original repository, so correctness
 rests on tests/test_evolve2d.py, which pins the 2D path against a dense FFT at small R.
 """
+import os
 import sys
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import evolve2d, observables
 
 R, XMIN, XMAX, YMIN, YMAX = 20, -100.0, 100.0, -100.0, 100.0

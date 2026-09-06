@@ -10,12 +10,15 @@ full grid) runs the identical scheme for comparison.
 
 Usage:  python examples/ground_state_gp.py [R] [g]
 """
+import os
 import sys
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import Grid, equations, pde, reference
 
 

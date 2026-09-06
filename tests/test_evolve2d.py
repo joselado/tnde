@@ -5,12 +5,15 @@ x_1 y_1 x_2 y_2 ..., the Fourier transform has to be embedded into a subset of s
 and the site ordering it produces is not the one it started with. Each of those fails
 silently, so all three are checked against a dense 2D FFT.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 from qutecipy import contract
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import dense, evolve2d
 from tnde.fourier import fourier_mpo
 

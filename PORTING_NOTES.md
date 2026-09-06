@@ -212,10 +212,21 @@ created**, or everything is complex64 and `tol=1e-10` is meaningless.
 
 ```
 programs/
-├── qutecipy/                 the TCI + quantics engine, pip install -e . --no-deps
-│                             (do NOT symlink it into tnde/ -- a directory of that
-│                              name there shadows the installed package)
+├── qutecipy/                 the TCI + quantics engine, upstream working copy
 └── tnde/
+    ├── qutecipy/             VENDORED copy of the above (see qutecipy/VENDORED.md),
+    │                          so a plain clone needs no install. It shadows an
+    │                          installed qutecipy via sys.path -- but NOT a pip
+    │                          `-e` editable install, whose sys.meta_path finder
+    │                          wins regardless of path order. On a machine with the
+    │                          editable install present, imports still come from
+    │                          ../qutecipy; that is the dev setup, not what a fresh
+    │                          clone sees.
+    ├── pyitensor/            VENDORED from dmrgpy (see pyitensor/VENDORED.md), for
+    │                          its JAX backend -- the device path for MPO x MPS.
+    │                          No shadowing problem: the editable dmrgpy install
+    │                          exposes it as dmrgpy.pyitensor, not top-level.
+    │                          Imports standalone; nothing in tnde calls it yet.
     ├── Gross-Pitaevskii-TCI/ cloned original (reference)
     ├── reference_julia/      pinned Julia deps (the spec)
     ├── refdata/              ref_mps_1D.npz + dump_jld2.py
@@ -350,9 +361,17 @@ So JAX's place in this port is:
 
 - Python 3.12.7 (anaconda), JAX 0.7.1 **CPU-only** (no CUDA jaxlib installed; an
   NVIDIA GPU is present but the driver is not responding — `nvidia-smi` fails).
-- `dmrgpy` is an editable install pointing at `~/Documents/programs/dmrgpy/src/dmrgpy`;
-  `pyitensor` imports, backend switchable (`numpy` default, `jax` available).
-- `qutecipy` is at `../qutecipy`, installed with `pip install -e . --no-deps`
-  (`--no-deps` so it cannot pull a numpy that breaks the anaconda env).
+- `pyitensor` is vendored into `tnde/pyitensor/` (from `dmrgpy` at `43d1a35`); backend
+  switchable, `numpy` default, `jax` available and verified to produce device arrays.
+  The dev machine's editable `dmrgpy` install exposes the package as `dmrgpy.pyitensor`,
+  not top-level `pyitensor`, so the vendored copy is what `import pyitensor` resolves to
+  and there is nothing to work around. Nothing in `tnde` imports it yet — see the GPU
+  section of the README for what it is for and what is still unmeasured.
+- `qutecipy` is vendored into `tnde/qutecipy/`, so nothing needs installing. The dev
+  machine also has it at `../qutecipy` via `pip install -e . --no-deps` (`--no-deps` so
+  it cannot pull a numpy that breaks the anaconda env); that editable install's
+  `sys.meta_path` finder takes precedence over the vendored copy, so to exercise the
+  vendored one, strip the finder:
+  `sys.meta_path = [f for f in sys.meta_path if "qutecipy" not in getattr(f, "__module__", "")]`.
 - Machine is shared with other jobs: pin compute with
   `MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 taskset -c <core> …`.

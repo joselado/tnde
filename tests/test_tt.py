@@ -1,14 +1,17 @@
 """Gate for the tensor-train layer: the reference MPS from the paper must round-trip
 through it -- correct values, correct norm, correct elementwise-product MPO."""
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 from qutecipy import DiscretizedGrid, CachedFunction, crossinterpolate2, contract
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import tt
 
-REF = "/home/joselado/Documents/programs/tnde/refdata/ref_mps_1D.npz"
+REF = os.path.join(ROOT, "refdata", "ref_mps_1D.npz")
 R, XMIN, XMAX = 30, -500.0, 500.0
 
 

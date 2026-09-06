@@ -6,13 +6,16 @@ The test function is deliberately *asymmetric and complex* -- for a real even
 function ``fft`` and ``ifft*M`` coincide, so a symmetric test cannot tell the two
 signs apart and would pass with the sign wrong.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 from qutecipy import DiscretizedGrid, CachedFunction, crossinterpolate2, contract
 from qutecipy.tensortrain.core import reverse
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import tt
 from tnde.fourier import fourier_mpo
 

@@ -6,12 +6,15 @@ dt = 0.01, maxdim = 14.
 
 Usage:  python examples/reproduce_paper_1d.py [nsteps]
 """
+import os
 import sys
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import evolve1d, observables, tt
 
 R, XMIN, XMAX = 30, -500.0, 500.0
@@ -20,14 +23,14 @@ OMEGA1, OMEGA2, A2 = 0.01, 10, 5.0
 
 PSI0 = lambda x: ((1 / np.pi) ** 0.25 * np.exp(-(x**2) / 2)).astype(np.complex128)
 POTENTIALS = [lambda x: OMEGA1 * x**2, lambda x: A2 * np.sin(OMEGA2 * x) ** 2]
-REF = "/home/joselado/Documents/programs/tnde/refdata/ref_mps_1D.npz"
+REF = os.path.join(ROOT, "refdata", "ref_mps_1D.npz")
 
 
 def main(nsteps=100):
     t0 = time.time()
     psi, snaps = evolve1d.evolve(PSI0, POTENTIALS, R, XMIN, XMAX, G, DT, nsteps,
                                  m=M, tolerance=TOL, maxdim=MAXDIM, save_every=10,
-                                 cachedir="/home/joselado/Documents/programs/tnde/opcache")
+                                 cachedir=os.path.join(ROOT, "opcache"))
     print(f"\n{nsteps} steps in {time.time()-t0:.1f}s "
           f"({(time.time()-t0)/max(nsteps,1):.2f}s per step)")
 

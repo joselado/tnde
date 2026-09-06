@@ -12,12 +12,15 @@ each component's centre of mass, and the dense-reference comparison.
 
 Usage:  python examples/binary_mixture_1d.py [R] [r]
 """
+import os
 import sys
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import Grid, equations, pde, reference
 
 

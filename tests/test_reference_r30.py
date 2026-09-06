@@ -8,16 +8,19 @@ repository (converted from JLD2, see refdata/).
 Slow: ~60 s for 10 steps. The full 100-step comparison lives in
 examples/reproduce_paper_1d.py, which reaches 1 - overlap = 2.2e-10 at step 100.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import evolve1d, observables, tt
 
 R, XMIN, XMAX = 30, -500.0, 500.0
 DT, TOL, MAXDIM, G = 0.01, 1e-10, 14, 5.0
-REF = "/home/joselado/Documents/programs/tnde/refdata/ref_mps_1D.npz"
+REF = os.path.join(ROOT, "refdata", "ref_mps_1D.npz")
 
 
 def test_reproduces_reference():

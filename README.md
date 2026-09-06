@@ -399,11 +399,93 @@ the loss completely). Build it with `cd docs && pdflatex guide.tex && pdflatex g
 ## Install
 
 ```bash
-pip install -e ../qutecipy --no-deps      # tensor cross interpolation + tensor trains
-pip install numpy scipy jax               # jax is used only by the dense GP oracle
+pip install numpy scipy jax
 ```
 
-and put this directory on `sys.path` (the examples and tests do so themselves).
+That is the whole list. `qutecipy` — the tensor cross interpolation and tensor-train
+engine everything here is built on — is **vendored** in `qutecipy/`, so a plain clone
+runs anywhere with nothing else installed; see `qutecipy/VENDORED.md` for the upstream
+commit and how to refresh it. Put this directory on `sys.path` and both packages
+resolve; the examples and tests do it themselves:
+
+```python
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+```
+
+`pyitensor/` is vendored alongside it, for its JAX backend — see "Running on a GPU"
+below. `numba` is optional: `qutecipy` uses it to accelerate one dense pivoting loop and
+falls back to NumPy without it.
+
+## Running on a GPU
+
+The goal is for this to run on a GPU. It does not yet — not because the code is CPU-bound
+by design, but because the parts that would benefit are not all on the device, and the one
+that could be is not obviously worth it at the bond dimensions this problem uses. What
+follows is where things actually stand, so the next step can be measured rather than
+guessed.
+
+**JAX is already load-bearing, on the CPU.** `config.py` turns on `jax_enable_x64` before
+any array exists — without it everything is complex64 and a `tolerance` of `1e-10` is
+meaningless — and it is imported first by `tnde/__init__.py` for exactly that reason. From
+there JAX runs three things: `dense.py`, the dense split-step reference solver, fully
+`jit`-able; `tt.py::_eval_jax`, batched evaluation of a tensor train as a `lax.scan` of
+matmuls over cores padded to a common bond dimension (the padding is what makes `jit`
+possible at all — the bond dimension changes every step, and each new shape would
+otherwise retrace); and `batcheval.py`, which with `backend='jax'` `jit`s the kernel TCI
+calls for each batch of points and rounds every batch size up to a power of two, so XLA
+retraces a handful of times instead of once per distinct batch. These are the leaves, and
+they are where a device would pay off.
+
+**Where JAX must not go: the adaptive skeleton.** `qutecipy`'s rrLU, its pivot searches
+and its rank-adaptive sweeps run on dynamic shapes with data-dependent branching. `jit`
+would recompile per rank and lose to NumPy. That part stays on the host, and any GPU
+story has to live with a host-side controller issuing device-side kernels.
+
+**The remaining piece is MPO × MPS**, the one dense, regularly shaped operation in the
+step. `tnde/fit.py` does it variationally on the CPU today. The device version is
+**vendored in `pyitensor/`** — `dmrgpy`'s pure-Python ITensor subset, whose JAX backend
+was built for precisely this, with a single host→device conversion point
+(`ITensor.__init__`) and host round trips confined to `scalar()`, a `to_host()` on the
+singular-value vector so the truncation rule's data-dependent branching runs on the host,
+and measurement results. That design is the right one, and it is the same
+pad-to-fixed-shape trick `tt.py` uses here:
+
+```python
+from pyitensor import backend, applyMPO
+backend.set_backend("jax")      # every ITensor built from here on lives on the device
+backend.set_pad_bonds(maxdim)   # freeze bond shapes so jax.jit stops retracing
+backend.set_jit()               # fuse transpose+reshape+matmul, Gram+eigh, one kernel each
+```
+
+The last two knobs only work together: padding alone reduces how many eager kernels get
+*compiled*, not how many get *dispatched*, and `jit` alone retraces on every
+bond-dimension change. Hence the default `set_jit("auto")`, which turns `jit` on exactly
+when `set_pad_bonds` has made it safe. `maxdim` is fixed for the whole of a `tnde` run,
+which is what makes the padding free here.
+
+**What stops it being an obvious win is the crossover.** Eager JAX carries a per-call
+dispatch floor — `pyitensor`'s own measurements put it at ~0.35 ms on an H200, against
+~0.07 ms for the same kernel under `jit`. A device cannot win below the bond dimension at
+which the kernel outgrows that floor. The paper reproduction here runs at `maxdim = 14`,
+which is squarely in the regime `pyitensor`'s notes describe as a *loss*; the wins it
+reports are at large bond dimension, where the dispatch cost amortises to a few percent.
+So the GPU case for `tnde` is a case about *large-`maxdim`* runs, not about reproducing
+the paper faster.
+
+**And it cannot be measured on this machine.** JAX here is 0.7.1 with no CUDA jaxlib
+(`jax.devices()` returns `[CpuDevice(id=0)]`); an NVIDIA GPU is present but the driver is
+not responding, so `nvidia-smi` fails.
+
+So the status, stated plainly: `pyitensor` is **in the repo and ready, but not wired in**.
+Nothing in `tnde` imports it yet — the glue it still needs is a TT → `MPO` conversion and
+a `fit.py` alternative routed through `applyMPO`. Whether the device then wins is an open
+measurement, not a claim this README is making. The experiment that settles it is a
+jitted, pad-bonded MPO × MPS at the `maxdim` a real run uses, on working CUDA, against
+`fit.py` on the CPU — and the `maxdim` to try it at is a large one, not 14.
+
+See `pyitensor/VENDORED.md` for the upstream commit, which of its modules that path would
+touch, and how to refresh it.
 
 ## Layout
 
@@ -418,6 +500,13 @@ and put this directory on `sys.path` (the examples and tests do so themselves).
 | `batcheval.py` | batched, memoised function evaluation for TCI, with a fast path for the one-point calls its pivot searches make |
 | `fit.py` | variational MPO × MPS application, for operators whose rank makes the exact product too large |
 | `operators.py`, `evolve1d.py`, `evolve2d.py`, `dense.py`, `observables.py` | the Gross–Pitaevskii solvers |
+
+Alongside `tnde/` the repo carries two vendored packages — `qutecipy/`, the TCI and
+tensor-train engine everything here runs on, and `pyitensor/`, the ITensor subset whose
+JAX backend is the GPU route above — plus `tests/` (the gates, all runnable as plain
+scripts via `./run_tests.sh`), `examples/`, `refdata/` (the paper's reference MPS,
+converted from JLD2) and `docs/` (the LaTeX physics guide). Do not edit either vendored
+package here; change it upstream and re-vendor, as each one's `VENDORED.md` describes.
 
 ## Things worth knowing before trusting a number
 

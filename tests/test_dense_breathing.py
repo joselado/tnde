@@ -8,11 +8,14 @@ A minimum-uncertainty Gaussian with <x**2>_0 = a**2, <p**2>_0 = 1/(4a**2) obeys
 
 exactly, for any a. The initial state (1/pi)**(1/4) exp(-x**2/2) has a**2 = 1/2.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import dense
 
 

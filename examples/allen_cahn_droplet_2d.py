@@ -13,12 +13,15 @@ costs seconds where a smooth field costs a fraction of one. Compare
 
 Usage:  python examples/allen_cahn_droplet_2d.py [R]
 """
+import os
 import sys
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import numpy as np
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import Grid, equations, pde, reference
 
 

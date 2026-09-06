@@ -1,8 +1,9 @@
 # Upstream sources, cloned for reference — each carries its own .git, so they are
 # kept out of this repo rather than vendored. See README for how to restore them.
+# (qutecipy is the exception: it is a real dependency, so it *is* vendored — see
+# qutecipy/VENDORED.md.)
 Gross-Pitaevskii-TCI/
 reference_julia/
-qutecipy/
 
 # Generated
 opcache/

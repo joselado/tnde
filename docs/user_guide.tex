@@ -129,13 +129,14 @@ fields this is good for.
 % ---------------------------------------------------------------------------
 \section{A first run}
 
-Install once (the tensor-train and cross-interpolation kernels come from the sibling
-\code{qutecipy} package):
+Install once:
 \begin{lstlisting}[language=bash]
-pip install -e ../qutecipy --no-deps
 pip install numpy scipy jax
 \end{lstlisting}
-and put the repository directory on \code{sys.path} (the examples do this themselves).
+That is the whole list. The tensor-train and cross-interpolation kernels come from
+\code{qutecipy}, which is vendored inside the repository, so a plain clone runs anywhere
+with nothing else installed. Put the repository directory on \code{sys.path} and both
+packages resolve (the examples do this themselves).
 
 The ground state of a trapped 1D Bose gas by imaginary-time evolution, on a grid of
 $2^{20}$ points:

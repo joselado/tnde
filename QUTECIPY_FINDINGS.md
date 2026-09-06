@@ -32,7 +32,7 @@ revisits, so it does not reach the optimal bond-limited answer even when correct
 gauged. A variational refinement sweep is the standard remedy — `tnde/fit.py` in this
 directory implements one and reaches 5.4e-13 of the optimal truncation.
 
-**Prior art in the same codebase family.** `dmrgpy/src/dmrgpy/pyitensor/mpsalgebra.py::_apply_chain`
+**Prior art in the same codebase family.** `pyitensor/mpsalgebra.py::_apply_chain` (vendored here)
 documents this exact hazard at length and calls `chain.position(1)` on both operands
 before sweeping. Its comment records the symptom it caused there: ⟨Hb|Hb⟩ and ⟨b|H²b⟩
 disagreeing by 0.86% where compiled ITensor agrees to 1e-15.

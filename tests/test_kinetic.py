@@ -7,12 +7,15 @@ each fail silently if wrong. Checking it against the dense FFT solver validates 
 Fourier sign, the unitary normalisation, all three reversals, the Fermi-Dirac
 low-pass and the finite-difference dispersion in one shot.
 """
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import numpy as np
 from qutecipy import contract, crossinterpolate2
 
-sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
 from tnde import batcheval, dense, tt
 from tnde.operators import kinetic_mpo_at
 
