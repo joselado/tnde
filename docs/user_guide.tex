@@ -1,0 +1,724 @@
+% tnde user guide -- for physics users.
+% Build:  pdflatex user_guide.tex && pdflatex user_guide.tex     (twice, for the TOC)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{ragged2e}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{codebg}{gray}{0.96}
+\definecolor{rule}{gray}{0.55}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=none,
+  columns=fullflexible,
+  keepspaces=true,
+  xleftmargin=1em,
+  framexleftmargin=1em,
+  framexrightmargin=1em,
+  framextopmargin=4pt,
+  framexbottommargin=4pt,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\ttfamily,
+  commentstyle=\color{rule},
+  stringstyle=\ttfamily,
+}
+
+% Inline code.  Underscores are escaped by hand at every call site.
+\newcommand{\code}[1]{\texttt{#1}}
+
+\newcommand{\kcut}{k_{\mathrm{cut}}}
+\newcommand{\kmax}{k_{\max}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\vx}{\mathbf{x}}
+\newcommand{\vk}{\mathbf{k}}
+
+\newtcolorbox{finding}{
+  colback=codebg, colframe=rule, boxrule=0.5pt, arc=1pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+}
+
+\newcolumntype{L}{>{\RaggedRight\arraybackslash}X}
+
+\title{\textbf{\texttt{tnde} user guide}\\[2pt]
+  \large Time-dependent PDEs on quantics tensor trains, for physics users}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\noindent
+This guide is for someone who has a Schr\"odinger, Gross--Pitaevskii, diffusion or
+reaction--diffusion problem and wants to run it on a grid that would not fit in memory.
+It explains what the code computes, what the tensor-network representation does to the
+field, which knobs matter physically and which are numerical, and how to get numbers
+back out that can be trusted. The \code{README} covers installation and the validation
+tables; \code{docs/guide.tex} covers the original Gross--Pitaevskii benchmark in
+depth. This document sits between them.
+
+\vspace{1em}
+\hrule
+\vspace{0.5em}
+{\small\tableofcontents}
+\vspace{0.5em}
+\hrule
+\newpage
+
+% ---------------------------------------------------------------------------
+\section{What the code solves}
+
+Every equation \code{tnde} handles has the form
+\begin{equation}
+\partial_t u(\vx,t)
+= \underbrace{\ell(-i\nabla)\,u}_{\text{linear, translation-invariant}}
++ \underbrace{p(\vx)\,u}_{\text{local linear}}
++ \underbrace{N(u,\vx,t)}_{\text{local nonlinear}}
+\label{eq:master}
+\end{equation}
+on a periodic box in one, two or three space dimensions, for a scalar or a
+multi-component field $u$. The three terms are the three things the user supplies.
+
+\begin{tabularx}{\textwidth}{@{}lLL@{}}
+\toprule
+term & meaning & examples \\
+\midrule
+$\ell(\vk)$ & the \emph{symbol} of a linear operator diagonal in momentum: in Fourier
+space $\partial_t \hat u_{\vk} = \ell(\vk)\,\hat u_{\vk}$ &
+$-i\hbar k^2/2m$ (free Schr\"odinger), $-Dk^2$ (diffusion), $-\nu k^4$
+(hyperviscosity), $-D|k|^{\alpha}$ (fractional diffusion, L\'evy flights),
+$-i\,\mathbf c\cdot\vk$ (advection) \\
+$p(\vx)$ & a multiplicative term that depends only on position &
+$-iV(\vx)/\hbar$ (a potential in real time), $-V(\vx)$ (in imaginary time), a
+spatially varying growth rate $r(\vx)$ \\
+$N(u,\vx,t)$ & at each point, an ODE in $u$ alone &
+$-ig|u|^2u$ (mean field), $ru(1-u)$ (logistic growth), $u-u^3$ (double well), any
+coupling between components \\
+\bottomrule
+\end{tabularx}
+
+The one restriction is that $N$ contains \textbf{no derivatives}. Burgers ($u\,u_x$),
+Korteweg--de Vries and Navier--Stokes are outside the scheme, because the splitting of
+Section~\ref{sec:step} needs the nonlinear part to act pointwise. Everything else that
+can be written as \eqref{eq:master} is one
+\code{Equation(linear=..., potential=..., nonlinear=...)} away, and the common cases
+are presets.
+
+The point of the tensor-train representation is that the cost is set by how much
+\emph{structure} the solution has, not by how many grid points there are. A 1D
+condensate on $2^{30}\approx10^9$ points, or a 2D field on $4096^2$ points, is evolved
+without the grid ever existing in memory. Section~\ref{sec:quantics} says exactly which
+fields this is good for.
+
+% ---------------------------------------------------------------------------
+\section{A first run}
+
+Install once (the tensor-train and cross-interpolation kernels come from the sibling
+\code{qutecipy} package):
+\begin{lstlisting}[language=bash]
+pip install -e ../qutecipy --no-deps
+pip install numpy scipy jax
+\end{lstlisting}
+and put the repository directory on \code{sys.path} (the examples do this themselves).
+
+The ground state of a trapped 1D Bose gas by imaginary-time evolution, on a grid of
+$2^{20}$ points:
+\begin{lstlisting}
+import numpy as np
+from tnde import Grid, equations, pde
+
+grid = Grid(20, (-16.0, 16.0))                         # 2**20 points on [-16, 16)
+eq = equations.gross_pitaevskii(V=lambda x: 0.5 * x**2, g=50.0, imaginary_time=True)
+psi, snaps = pde.solve(eq, lambda x: np.exp(-x**2 / 8), grid,
+                       dt=0.01, nsteps=400, tolerance=1e-10, maxdim=30, save_every=100)
+
+(x,), values = pde.reconstruct(psi, grid, n=1024)      # the field on 1024 sample points
+density = np.abs(values)**2
+n0 = np.abs(pde.evaluate(psi, grid, 0.0))**2           # the density at x = 0
+print(psi.rank(), pde.norm(psi, grid))                 # bond dimension, L2 norm
+\end{lstlisting}
+
+The units are the ones you put in. With $\hbar=m=1$ and $V=x^2/2$ the trap frequency
+is $\omega=1$, so lengths are in units of the oscillator length
+$a_{\rm ho}=\sqrt{\hbar/m\omega}$, time in $1/\omega$, energies in $\hbar\omega$, and
+$g$ is the 1D coupling in those units. With $g=50$ the cloud is deep in the
+Thomas--Fermi regime and the density approaches $n(x)=(\mu-x^2/2)/g$ with
+$\mu=\tfrac12(3g/2)^{2/3}$. The script \code{examples/ground\_state\_gp.py} does that
+comparison and gets $\mu$ within 1.5\,\% of the Thomas--Fermi value, the difference
+being the kinetic (quantum-pressure) correction.
+
+\code{solve} prints one line per step with the time, the bond dimensions and the
+timing. Those bond dimensions are the single most useful diagnostic in the code, for
+reasons that Section~\ref{sec:quantics} explains.
+
+% ---------------------------------------------------------------------------
+\section{Tensor networks in five minutes}
+\label{sec:tn}
+
+A \textbf{tensor} here is just an array with several indices, $T_{i_1 i_2\cdots i_n}$.
+If every index takes two values the array has $2^n$ entries, and for $n=30$ that is a
+billion numbers. A \textbf{tensor train} (in many-body physics, a \emph{matrix product
+state}, MPS) writes such an array as a product of small matrices,
+\begin{equation}
+T_{i_1 i_2\cdots i_n} = A^{(1)}[i_1]\,A^{(2)}[i_2]\cdots A^{(n)}[i_n],
+\label{eq:tt}
+\end{equation}
+where $A^{(s)}[i_s]$ is a $\chi_{s-1}\times\chi_s$ matrix for each value of $i_s$, with
+$\chi_0=\chi_n=1$ so the product is a scalar. The matrix sizes $\chi_s$ are the
+\textbf{bond dimensions}, or ranks. Storage is $\sum_s 2\chi_{s-1}\chi_s\sim 2n\chi^2$
+instead of $2^n$: linear in $n$ rather than exponential, provided $\chi$ stays small.
+
+Everything else follows from \eqref{eq:tt}.
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Bond dimension measures the entanglement between the two halves of the
+  index string.} Cut the train between sites $s$ and $s+1$; the array, reshaped as a
+  matrix with the first $s$ indices as rows and the rest as columns, has at most rank
+  $\chi_s$. A product array ($T=a_{i_1}b_{i_2}\cdots$) has $\chi=1$ everywhere. A
+  generic random array has $\chi_s=2^{\min(s,\,n-s)}$ and gains nothing.
+\item \textbf{Truncation is an SVD.} Any train can be brought to a canonical form in
+  which the singular values of each cut are explicit. Discarding those below a
+  tolerance, or beyond a maximum count \code{maxdim}, is the optimal low-rank
+  approximation at that cut. This is how \code{tnde} keeps the field small after every
+  operation: the discarded weight is the approximation error, and a train that keeps
+  hitting \code{maxdim} is saying the field has more structure than was allowed for.
+\item \textbf{Operators are trains too.} A matrix $O_{i_1\cdots i_n,\,j_1\cdots j_n}$
+  written as a product of four-index cores $W^{(s)}[i_s,j_s]$ is a \textbf{matrix
+  product operator} (MPO). Applying an MPO of rank $r$ to a train of rank $\chi$ gives,
+  exactly, a train of rank $r\chi$, which is then truncated. A diagonal operator
+  (multiplication by a function) is an MPO whose cores are diagonal in $(i_s,j_s)$.
+\item \textbf{Contractions are cheap.} The overlap $\langle S|T\rangle$ of two trains,
+  the norm, the sum of all entries and the value at a single index cost $O(n\chi^2)$ to
+  $O(n\chi^3)$. This is how \code{norm}, \code{integral} and \code{evaluate} of
+  Section~\ref{sec:out} work.
+\end{itemize}
+
+The last piece is how to \emph{build} a train for a function that can be evaluated but
+not stored. \textbf{Tensor cross interpolation} (TCI) does that from samples. For a
+matrix, choosing $\chi$ rows $I$ and $\chi$ columns $J$ gives the cross approximation
+\begin{equation}
+M \approx M_{:,J}\,(M_{I,J})^{-1}\,M_{I,:},
+\end{equation}
+exact if $M$ has rank $\chi$ and good if the chosen rows and columns (the
+\textbf{pivots}) capture the dominant structure. Applied cut by cut along the train, a
+few thousand function evaluations are enough to build a rank-$\chi$ train for a
+function on $2^{30}$ points. TCI grows the pivot set greedily until the interpolation
+error \emph{at the places it has looked} drops below a tolerance. That qualifier is the
+caveat Section~\ref{sec:checklist} returns to.
+
+% ---------------------------------------------------------------------------
+\section{Quantics: a function as a tensor train}
+\label{sec:quantics}
+
+Take a function $f(x)$ on the interval $[x_{\min},x_{\min}+L)$ sampled on $M=2^R$
+points, $x_j=x_{\min}+jL/2^R$. Write the index $j$ in binary,
+\begin{equation}
+j=\sum_{r=1}^{R} b_r\,2^{R-r},\qquad b_r\in\{0,1\},
+\end{equation}
+so that $b_1$ is the most significant bit and decides which half of the box $x$ is in,
+$b_2$ which quarter, and so on down to $b_R$, which selects between neighbouring grid
+points. The samples $f(x_j)$ are now an $R$-index tensor $F_{b_1b_2\cdots b_R}$, and
+that tensor can be written as a train \eqref{eq:tt}. This is the \textbf{quantics}
+representation: each site of the train is one \emph{length scale} of the function,
+from the coarsest at site 1 to the finest at site $R$. Doubling the resolution adds one
+site, not a factor of two in storage.
+
+Which functions are low rank? Those whose behaviour at fine scales is simple.
+
+\begin{tabularx}{\textwidth}{@{}lcL@{}}
+\toprule
+function & bond dimension & why \\
+\midrule
+$e^{ikx}$ & 1 & $e^{ikx_j}=\prod_r e^{ik\,b_r 2^{R-r}\Delta x}$ is a product over bits \\
+polynomial of degree $p$ & $p+1$ & sums of products of bit-polynomials \\
+$e^{-x^2/2\sigma^2}$ & $\approx 5$--$12$ at $10^{-10}$ & a Gaussian is a superposition of a few plane waves at every scale \\
+a wave packet in a trap plus a lattice & 10--20 & a few smooth envelopes times a few oscillations \\
+a smooth function with $n$ separate features & grows with $n$ & each feature costs its own rank at the fine scales \\
+a step, $|x|$, a sharp front in 1D & small & a discontinuity on a line costs little \\
+a curved sharp front in 2D & 50--100 & the interface position is a different fine-scale function along every row \\
+noise, turbulence, chaos & $\sim 2^{R/2}$ & nothing to compress \\
+\bottomrule
+\end{tabularx}
+
+\begin{finding}
+\textbf{The quantics rank is set by the structure of the field, not by how finely it
+is resolved.} A Gaussian on $2^{12}$ or on $2^{30}$ points has the same rank. Refining
+the grid is free; adding physics that puts independent information at every length
+scale is not.
+\end{finding}
+
+\paragraph{Several dimensions.} For $u(x,y)$ on $2^R\times2^R$ points the bits of both
+variables are \textbf{interleaved} by length scale,
+\begin{equation}
+b^x_1\,b^y_1\;\;b^x_2\,b^y_2\;\;\cdots\;\;b^x_R\,b^y_R,
+\end{equation}
+so the train has $dR$ sites and the two bits at any given scale are neighbours. That
+ordering keeps a smooth $d$-dimensional function compact. It has a consequence visible
+in the logs: a separable field $f(x)g(y)$ has rank $r_f r_g$ at the bonds between
+scales, so 2D and 3D ranks of 40--70 are normal for fields that would be rank 8 in 1D.
+The solver switches to a cheaper, variational way of applying operators in 2D and 3D
+for exactly this reason.
+
+\paragraph{Momentum.} The grid is periodic with period exactly $L$, so the discrete
+Fourier transform of the samples is the set of plane waves $e^{ik_jx}$ with
+\begin{equation}
+k_j=\frac{2\pi j}{L}\ \ (j<2^{R-1}),\qquad k_j=\frac{2\pi (j-2^R)}{L}\ \ (j\ge2^{R-1}),
+\end{equation}
+the ordinary physical momentum, and the largest representable momentum is
+$\kmax=\pi/\Delta x=\pi 2^R/L$. The Fourier transform of a quantics train is itself an
+MPO of small rank (about 12 at $10^{-12}$), an analytic construction rather than a fit,
+so switching between position and momentum costs one MPO application. A
+translation-invariant operator $\ell(-i\nabla)$ is applied exactly by transforming,
+multiplying by the diagonal MPO of $\ell(\vk)$, and transforming back. The momentum grid
+is the same interleaved train as the position grid, with the variables in reverse
+order (a detail \code{Grid} handles).
+
+\code{Grid} is the object that owns all of this: index $\leftrightarrow$ bits, index
+$\leftrightarrow$ coordinate, index $\leftrightarrow$ momentum, the spacing and the
+volume element.
+\begin{lstlisting}
+grid = Grid(12, [(-20.0, 20.0), (-20.0, 20.0)])
+grid.M, grid.ndim, grid.nsites   # 4096, 2, 24
+grid.spacings, grid.dvol         # [0.0098, 0.0098], 9.5e-5
+x, y = grid.mesh()               # dense coordinate arrays: only for small R
+kx, ky = grid.kmesh()            # dense momentum arrays
+\end{lstlisting}
+Indices are 64-bit integers, so a grid has at most 62 sites: $R\le31$ per axis in 1D
+and 2D, $R\le20$ in 3D.
+
+% ---------------------------------------------------------------------------
+\section{How a time step works}
+\label{sec:step}
+
+The three terms of \eqref{eq:master} are applied in turn by \textbf{Strang splitting}.
+Over one step of length $h$,
+\begin{equation}
+u(t+h)\;\approx\;N_{h/2}\;P_{h/2}\;L_{h}\;P_{h/2}\;N_{h/2}\;u(t),
+\label{eq:strang}
+\end{equation}
+where $L_h=e^{h\ell(-i\nabla)}$, $P_h=e^{hp(\vx)}$, and $N_h$ is the exact flow of the
+local ODE $\dot u=N(u,\vx,t)$ over time $h$. The symmetric arrangement makes the local
+error $O(h^3)$ and the global error $O(h^2)$, regardless of what the three operators
+are. The half-steps of $N$ at the end of one step and the start of the next are merged
+into one full step wherever nothing needs the true state at the step boundary, so a
+long run costs one nonlinear application per step; a snapshot or a renormalisation pays
+the extra half step where it occurs.
+
+Each factor is applied differently, and this is the part worth understanding.
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{$L_h$ is exact.} Fourier MPO, multiply by the diagonal MPO of
+  $e^{h\ell(\vk)}$, inverse Fourier MPO. The only approximation is the truncation of the
+  result to \code{maxdim} at \code{tolerance}. The multiplier MPO is cross-interpolated
+  once, at start-up.
+\item \textbf{$P_{h/2}$ is exact.} The diagonal MPO of $e^{hp(\vx)/2}$,
+  cross-interpolated once. Again the only approximation is truncation.
+\item \textbf{$N_h$ is applied by re-interpolation.} There is no fixed operator for a
+  nonlinear map, so at every step the solver hands TCI the function ``evaluate the
+  current train at this point, advance the local ODE there by $h$'' and lets it build a
+  fresh train. The local ODE is advanced by a \textbf{closed-form flow map} when the
+  equation provides one (every preset that has one does) and by classical \textbf{RK4}
+  otherwise. This is a full cross interpolation from scratch, every step, and it
+  dominates the cost of every nonlinear run.
+\end{itemize}
+
+Two physics-facing consequences follow.
+
+\paragraph{Imaginary time.} With $t=-i\tau$ the Schr\"odinger equation becomes
+$\partial_\tau\psi=-H\psi$, whose solution $e^{-\tau H}\psi_0$ projects any initial
+state onto the ground state if it is renormalised as it decays.
+\code{imaginary\_time=True} in the Schr\"odinger-type presets makes the symbol real
+($-k^2/2m$), the potential real ($-V$), the nonlinear flow the exact decay of
+$|\psi|^2$, and switches on renormalisation after every step. For a mixture,
+\code{normalise="each"} holds every component's population fixed instead. The converged
+state satisfies the (Gross--Pitaevskii) eigenvalue problem up to the $O(\Delta\tau^2)$
+splitting error, which is why the harmonic-oscillator test in the \code{README} lands
+at $10^{-4}$ and not $10^{-12}$: reduce $\Delta\tau$ to reduce it.
+
+\paragraph{The momentum window.} A diffusive multiplier $e^{-hDk^2}$ decays to zero at
+large $k$ and is a low-rank function of the momentum bits. An oscillatory one,
+$e^{-ihk^2/2m}$, is not: at the largest momentum of a fine grid its phase changes by
+many radians from one index to the next, and no small train represents that. The
+Schr\"odinger-type presets therefore take a cutoff \code{kcut}, applied as a separable
+Fermi--Dirac window
+\begin{equation}
+w(\vk)=\prod_v\frac{1}{1+e^{\beta(|k_v|-\kcut)}},
+\qquad \beta=20/\kcut\ \text{by default},
+\end{equation}
+multiplied into the propagator.
+\begin{finding}
+\textbf{The window discards all momentum content above $\kcut$.} It is a rank-control
+device with a physical cost, and it is not norm-preserving. Choose $\kcut$ above every
+momentum the dynamics can excite (the lattice momentum, $\sqrt{2m(E-V)}$ for the
+fastest part of a packet, $\sim\sqrt{2m\mu}$ for the healing length of a condensate),
+check the norm \emph{without} renormalisation, and move the cutoff to see what
+changes. In the published 1D benchmark the window, not the bond dimension, was the
+leading approximation (\code{docs/guide.tex}). Diffusive equations need no window.
+\end{finding}
+
+The dense solver \code{tnde.reference} runs the \emph{identical} splitting loop and
+local flow on full arrays with \code{numpy.fft}. Every difference between it and the
+train solver is truncation. Use it on a small grid to separate ``the tensor network is
+losing something'' from ``the time step is too big''.
+
+% ---------------------------------------------------------------------------
+\section{Setting up a problem}
+\label{sec:setup}
+
+\subsection{The grid}
+\begin{lstlisting}
+Grid(R, (lo, hi))                        # 1D, 2**R points on [lo, hi)
+Grid(R, [(lo, hi), (lo2, hi2)])          # 2D, 2**R per axis
+Grid(R, [(lo, hi)] * 3)                  # 3D
+\end{lstlisting}
+The box is periodic and the upper endpoint is excluded. Two physical constraints set
+$L$ and $R$: the box must be large enough that the field and its periodic images do not
+interact (a decaying field should be negligible at the edges), and the spacing
+$\Delta x=L/2^R$ must resolve the finest physical length (a lattice period, a healing
+length $\xi=1/\sqrt{2mgn}$, a diffusion front $\sqrt{Dt}$). Because refining costs one
+site per doubling, take $R$ generous: $R=20$ in 1D is $10^6$ points and costs the same
+as $R=12$ for a smooth field.
+
+\subsection{The equation}
+
+A preset, or the three callables directly. The presets in \code{tnde.equations}:
+
+\begin{small}
+\begin{tabularx}{\textwidth}{@{}p{1em}LL@{}}
+\toprule
+\multicolumn{3}{@{}l}{preset} \\
+ & equation & local step \\
+\midrule
+\multicolumn{3}{@{}l}{\code{schrodinger(V, m, hbar, kcut)}} \\
+ & $i\hbar\partial_t\psi=-\frac{\hbar^2}{2m}\nabla^2\psi+V\psi$ & none \\[3pt]
+\multicolumn{3}{@{}l}{\code{gross\_pitaevskii(V, g, m, kcut, imaginary\_time)}} \\
+ & $i\partial_t\psi=-\frac{1}{2m}\nabla^2\psi+V\psi+g|\psi|^2\psi$ & exact phase $e^{-ig|\psi|^2h}$; in imaginary time the exact decay $\psi/\sqrt{1+2g|\psi|^2h}$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{nonlinear\_schrodinger(f, V, m, kcut)}} \\
+ & $i\partial_t\psi=-\frac{1}{2m}\nabla^2\psi+V\psi+f(|\psi|^2)\psi$ & exact phase $e^{-if(|\psi|^2)h}$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{coupled\_gross\_pitaevskii(G, V, m, kcut, imaginary\_time)}} \\
+ & $i\partial_t\psi_a=-\frac{1}{2m}\nabla^2\psi_a+V_a\psi_a+\sum_bG_{ab}|\psi_b|^2\psi_a$ & exact phases; RK4 in imaginary time \\[3pt]
+\multicolumn{3}{@{}l}{\code{heat(D, source, rate)}} \\
+ & $\partial_tu=D\nabla^2u+r(\vx)u+S(u,\vx,t)$ & RK4 if a source is given \\[3pt]
+\multicolumn{3}{@{}l}{\code{fractional\_diffusion(alpha, D)}} \\
+ & $\partial_tu=-D(-\nabla^2)^{\alpha/2}u$ & none \\[3pt]
+\multicolumn{3}{@{}l}{\code{advection\_diffusion(velocity, D)}} \\
+ & $\partial_tu=-\mathbf c\cdot\nabla u+D\nabla^2u$ & none; advection is the exact multiplier $-i\mathbf c\cdot\vk$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{fisher\_kpp(D, r)}} \\
+ & $\partial_tu=D\nabla^2u+ru(1-u)$ & exact logistic map $u/(u+(1-u)e^{-rh})$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{allen\_cahn(eps)}} \\
+ & $\partial_tu=\varepsilon\nabla^2u+u-u^3$ & exact $u/\sqrt{u^2+(1-u^2)e^{-2h}}$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{complex\_ginzburg\_landau(b, c)}} \\
+ & $\partial_tA=A+(1+ib)\nabla^2A-(1+ic)|A|^2A$ & exact $A(1+2|A|^2h)^{-(1+ic)/2}$ \\[3pt]
+\multicolumn{3}{@{}l}{\code{gray\_scott(Du, Dv, F, k)}} \\
+ & $\partial_tu=D_u\nabla^2u-uv^2+F(1-u)$, $\partial_tv=D_v\nabla^2v+uv^2-(F+k)v$ & RK4 \\[3pt]
+\multicolumn{3}{@{}l}{\code{fitzhugh\_nagumo(Du, Dv, a, eps, gamma)}} \\
+ & $\partial_tu=D_u\nabla^2u+u(1-u)(u-a)-v$, $\partial_tv=D_v\nabla^2v+\varepsilon(u-\gamma v)$ & RK4 \\[3pt]
+\bottomrule
+\end{tabularx}
+\end{small}
+
+Every symbol is written for any number of dimensions, so the same preset serves 1D, 2D
+and 3D. Potentials and sources are functions of the coordinates, \code{V(x)} in 1D,
+\code{V(x, y)} in 2D, evaluated on NumPy arrays.
+
+A custom equation supplies the three maps. The conventions: \code{linear} receives the
+momentum components and returns $\partial_t\hat u_{\vk}/\hat u_{\vk}$; \code{potential}
+receives the coordinates and returns $\partial_tu/u$; \code{nonlinear} receives the
+field, the coordinates and the time, in that order, and returns $\partial_tu$.
+\begin{lstlisting}
+from tnde import Equation
+
+# 1D:  d_t u = -0.01 k^4 u  -  x^2 u  +  i a x cos(w t) u
+eq = Equation(linear=lambda k: -0.01 * k**4,
+              potential=lambda x: -x**2,
+              nonlinear=lambda u, x, t: 1j * a * x * np.cos(w * t) * u)
+\end{lstlisting}
+Time-dependent local terms belong in \code{nonlinear}; \code{potential} is static so
+that its MPO is built once. If the exact solution of the local ODE is known, pass it as
+\code{flow(u, x, t, h)} instead of \code{nonlinear}: one evaluation per point instead
+of four per RK4 sub-step, and no time-stepping error. The presets show the pattern. If
+RK4 is used and the local dynamics is stiff, raise \code{rk\_substeps}.
+
+A multi-component field sets \code{ncomp}, passes and returns tuples in the local
+terms, and takes a symbol per component (or one shared symbol):
+\begin{lstlisting}
+# two species, 2D, different diffusivities, a coupled local ODE
+eq = Equation(linear=[lambda kx, ky: -Du * (kx**2 + ky**2),
+                      lambda kx, ky: -Dv * (kx**2 + ky**2)],
+              nonlinear=lambda uv, x, y, t: (f(*uv), g(*uv)),
+              ncomp=2)
+\end{lstlisting}
+The remaining fields are \code{filter} (a momentum window $w(\vk)$, which the
+Schr\"odinger presets set from \code{kcut}), \code{normalise} (\code{True} for unit
+total norm after every step, \code{"each"} for unit norm per component) and
+\code{rk\_substeps}.
+
+\subsection{The initial condition}
+
+A callable of the coordinates, or a list of them for a multi-component field. It is
+cross-interpolated onto the grid at \code{tolerance} and \code{maxdim} before the first
+step, and the log reports its rank. An existing train, for instance the result of a
+previous run, can be passed instead.
+
+\subsection{Running}
+\begin{lstlisting}
+u, snaps = pde.solve(eq, u0, grid, dt, nsteps,
+                     tolerance=1e-10,   # truncation and TCI tolerance of the field
+                     maxdim=32,         # bond-dimension cap of the field
+                     save_every=None,   # keep every k-th state in `snaps`
+                     callback=None,     # callback(step, t, state) at every snapshot
+                     method="auto",     # how diagonal MPOs are applied
+                     t0=0.0, verbose=True)
+\end{lstlisting}
+\code{u} is the final state, a \code{TensorTrain} (or a list of them). \code{snaps} is
+a dictionary keyed by step number, with the initial state under 0 and the state at
+$t_0+j\,\dd t$ under $j$. Snapshots are true states at step boundaries, so a run with
+snapshots costs one extra half nonlinear step per snapshot. A callback is the cheap
+way to monitor an observable during a long run:
+\begin{lstlisting}
+def report(step, t, u):
+    (x,), v = pde.reconstruct(u, grid, n=512)
+    print(f"t = {t:6.2f}  rank {u.rank():3d}  peak density {np.max(np.abs(v)**2):.4f}")
+
+u, _ = pde.solve(eq, u0, grid, dt, nsteps, save_every=20, callback=report, verbose=False)
+\end{lstlisting}
+
+% ---------------------------------------------------------------------------
+\section{Getting physics out}
+\label{sec:out}
+
+The state is a train, so nothing is a plain array until asked for. All of these live in
+\code{tnde.pde}.
+
+\begin{tabularx}{\textwidth}{@{}lLl@{}}
+\toprule
+call & returns & cost \\
+\midrule
+\code{reconstruct(u, grid, n, window)} & \code{(axes, values)}: the field on $n$ points
+per direction across the box, or across a \code{window} of \code{(lo, hi)} pairs &
+$n^d$ evaluations \\
+\code{evaluate(u, grid, *x)} & the field at the grid points nearest to real coordinates,
+broadcast over arrays & one contraction per point \\
+\code{to\_dense(u, grid)} & the full $(2^R)^d$ array & small grids only \\
+\code{norm(u, grid)} & $\sqrt{\sum_c\int|u_c|^2\,\dd V}$ & $O(R\chi^3)$ \\
+\code{integral(u, grid)} & $\int u\,\dd V$ & $O(R\chi^2)$ \\
+\code{normalise(u, grid, each)} & the state rescaled to unit norm & \\
+\code{interpolate(fn, grid, tolerance, maxdim)} & a train of an arbitrary function & one TCI \\
+\code{max\_error(u, fn, grid, n, window)} & maximum relative deviation of \code{u} from
+\code{fn} on an independent sample & $n^d$ evaluations \\
+\code{fourier\_transform(u, grid)} & the train in momentum space & one MPO application \\
+\bottomrule
+\end{tabularx}
+
+Densities and plots come from \code{reconstruct}. It samples, so choose $n$ to resolve
+what is to be seen and use \code{window} to zoom:
+\begin{lstlisting}
+(x, y), psi_xy = pde.reconstruct(psi, grid, n=512, window=[(-5, 5), (-5, 5)])
+density = np.abs(psi_xy)**2
+\end{lstlisting}
+
+\paragraph{Expectation values.} The exact route stays on the train: multiply the
+density by the observable and integrate, with the density evaluated on grid points so
+that nothing is interpolated between them.
+\begin{lstlisting}
+def expectation(psi, grid, obs):
+    """<obs> = int obs(x) |psi|^2 dV / int |psi|^2 dV, for a diagonal observable."""
+    dens = lambda *x: obs(*x) * np.abs(pde.evaluate(psi, grid, *x))**2
+    return (pde.integral(pde.interpolate(dens, grid, tolerance=1e-10), grid)
+            / pde.norm(psi, grid)**2).real
+
+x_mean  = expectation(psi, grid, lambda x: x)
+x2_mean = expectation(psi, grid, lambda x: x**2)
+width   = np.sqrt(x2_mean - x_mean**2)
+\end{lstlisting}
+Momentum-space quantities go through \code{fourier\_transform} and the same integrals
+in $k$; the kinetic energy of the first run is $\frac{1}{2m}\int k^2|\hat\psi_k|^2$. On
+a small grid it is simpler, and exact, to take \code{to\_dense} and use NumPy directly,
+which is what the examples do for their reference numbers.
+
+\paragraph{Checking against a dense solution.} For $R\lesssim16$ in 1D or
+$R\lesssim8$ in 2D the whole problem fits in memory, and
+\begin{lstlisting}
+from tnde import reference
+u_ref, _ = reference.solve(eq, u0, grid, dt, nsteps)
+err = np.max(np.abs(pde.to_dense(u, grid) - u_ref)) / np.max(np.abs(u_ref))
+\end{lstlisting}
+isolates truncation error from everything else. Do this once, at small $R$, before
+scaling up. The ranks do not depend on $R$ for a smooth field, so what is learnt at
+$R=14$ transfers to $R=30$.
+
+% ---------------------------------------------------------------------------
+\section{Choosing the parameters}
+\label{sec:params}
+
+\paragraph{\code{dt}.} The splitting error is $O(\dd t^2)$ globally and independent of
+the grid: there is no CFL condition, because $L_h$ is exact for any $h$. What limits
+\code{dt} is the physics: the phase $\omega\,\dd t$ of the fastest relevant oscillation
+should be small, and in imaginary time $\dd\tau\,(E_{\max}-E_0)\lesssim1$ for the
+highest energy present. The quick convergence test is to halve \code{dt}; the error
+should drop by four.
+
+\paragraph{\code{tolerance}.} Both the SVD truncation of the field and the TCI tolerance
+of the nonlinear step. Values of $10^{-8}$ to $10^{-10}$ are normal. Every step re-fits
+the field, so errors accumulate linearly in the number of steps; the \code{README}
+tables show $10^{-12}$ agreement with dense references over tens of steps at
+$10^{-10}$.
+
+\paragraph{\code{maxdim}.} The bond-dimension cap. It caps cost, which scales as $\chi^2$
+to $\chi^3$ per step, and it caps accuracy: once a rank hits \code{maxdim} the
+truncation is silent. Watch the ranks in the log. If they sit well below the cap, the
+cap is inactive; if they sit at it, either raise it or accept that the result is a
+low-rank projection of the dynamics. Typical: 20--30 in 1D, 40--70 in 2D and 3D.
+
+\paragraph{\code{method}.} How the diagonal MPOs ($P_h$ and the multiplier) are applied.
+\code{'naive'} forms the exact rank-$r\chi$ product and truncates it: cheap and slightly
+more accurate when both ranks are small. \code{'fit'} sweeps a variational ansatz of
+bond dimension \code{maxdim}: about $50\times$ faster when the ranks are 50--70.
+\code{'auto'} picks \code{'naive'} in 1D and \code{'fit'} in 2D and 3D. The Fourier MPOs
+always use the exact product.
+
+\paragraph{\code{kcut}.} See the momentum window in Section~\ref{sec:step}. Only
+Schr\"odinger-type equations need it, and only on grids fine enough that the free
+phase per step at $\kmax$, $h\,\kmax^2/2m$ with $\kmax=\pi2^R/L$, exceeds a few radians.
+Place it above every momentum the physics excites, with margin, and verify by checking
+the norm without renormalisation and by moving it.
+
+\paragraph{Cost.} One core, single-threaded BLAS, from the committed examples:
+
+\begin{tabularx}{\textwidth}{@{}Lll@{}}
+\toprule
+case & grid & per step \\
+\midrule
+1D Bose gas ground state, $g=50$ & $2^{16}$ & 0.17 s \\
+two-component mixture, RK4 local step & $2^{14}$ & 0.36 s \\
+2D advection--diffusion of a Gaussian, rank 40 & $4096^2$ & 2.1 s \\
+2D Allen--Cahn droplet, rank 50 & $128^2$ & 1.0 s \\
+1D Gross--Pitaevskii in a lattice (benchmark) & $2^{30}$ & 3 s \\
+2D Gross--Pitaevskii in a quasicrystal (benchmark) & $2^{20}\times2^{20}$ & 73 s \\
+\bottomrule
+\end{tabularx}
+
+Neither column is the number of grid points. The nonlinear re-interpolation costs
+(number of TCI evaluations) $\times$ (rank$^2$) $\times$ (cost of one local flow), and
+the ranks are set by the structure of the field. The Allen--Cahn droplet on $128^2$
+points takes as long as the Gaussian on $4096^2$ because its curved interface is the
+case the representation is not for.
+
+% ---------------------------------------------------------------------------
+\section{Worked examples and the physics in them}
+\label{sec:examples}
+
+All in \code{examples/}, each checked against a dense reference or an exact solution.
+\begin{itemize}[leftmargin=1.5em]
+\item \code{ground\_state\_gp.py} relaxes a 1D Bose gas in a harmonic trap to its
+  ground state in imaginary time and compares with the Thomas--Fermi profile. The
+  residual difference in $\mu$ is the quantum-pressure term
+  $-\tfrac12(\sqrt n)''/\sqrt n$, which the Thomas--Fermi approximation drops.
+\item \code{binary\_mixture\_1d.py} is a two-component condensate with
+  $G=g\left(\begin{smallmatrix}1&r\\r&1\end{smallmatrix}\right)$, $r>1$, relaxed with
+  each population held fixed. Above the miscibility threshold $G_{12}^2>G_{11}G_{22}$
+  the species expel each other and settle side by side; the reported overlap integral
+  $\int n_1n_2\,\dd x$ drops from 0.26 to 0.02 and the centres of mass move to $\pm1.5$.
+\item \code{advection\_diffusion\_2d.py} is the case the representation is built for:
+  a Gaussian drifting with velocity $\mathbf c$ and spreading as $\sigma^2+2Dt$ on a
+  $4096^2$ grid, compared with the closed form at every snapshot to $2\times10^{-7}$ at
+  rank 40. Run it with $R=15$ to see $10^9$ points evolve on a laptop.
+\item \code{allen\_cahn\_droplet\_2d.py} is the opposite case, kept to show the cost: a
+  circular droplet of the $u=+1$ phase shrinking by curvature flow,
+  $r^2=r_0^2-2\varepsilon t$, reproduced to 0.5\,\%. The interface is sharp and curved,
+  so the rank is 50 at $10^{-5}$ and 90 at $10^{-8}$ on a $128^2$ grid that NumPy would
+  finish in milliseconds.
+\item \code{reproduce\_paper\_1d.py}, \code{reproduce\_paper\_2d.py} reproduce the
+  published quantics Gross--Pitaevskii benchmarks (Section~\ref{sec:legacy}).
+\end{itemize}
+A convenient pattern for a new problem is to copy the nearest example, drop $R$ to
+something dense-checkable, confirm the reference agreement, then raise $R$.
+
+% ---------------------------------------------------------------------------
+\section{Checklist before trusting a number}
+\label{sec:checklist}
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Ranks below the cap?} A rank pinned at \code{maxdim} means silent
+  truncation. Raise the cap or lower the tolerance until the ranks stop changing.
+\item \textbf{Converged in \code{dt}?} Halve it once. The splitting error is
+  $O(\dd t^2)$.
+\item \textbf{Box large enough, grid fine enough?} Double $L$ (with $R+1$, to keep
+  $\Delta x$) and check nothing changes. The periodic boundary is invisible only if the
+  field vanishes at the edges.
+\item \textbf{Window above the physics?} With \code{kcut} set, run once with
+  \code{normalise} off and look at the norm. A drift means momentum is being thrown
+  away. A renormalised norm of 1.000000 proves nothing.
+\item \textbf{TCI looked everywhere?} TCI's error estimate is taken at the pivots it
+  chose. A feature no pivot reached is invisible to it. The solver seeds both sides of
+  the box centre (a centred feature sits exactly on the most significant bit of every
+  variable) and the peaks of $|f|$, and runs a global pivot search after every sweep,
+  but the honest check is \code{max\_error} against an independent sample, or a dense
+  reference at small $R$.
+\item \textbf{Dense reference agreed at small $R$?} The ranks are $R$-independent for a
+  smooth field, so agreement at $R=14$ is evidence at $R=30$.
+\item \textbf{Real equation, complex field.} Everything is \code{complex128}. Take
+  \code{.real} of what is reconstructed.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{The Gross--Pitaevskii benchmark drivers}
+\label{sec:legacy}
+
+The library grew out of a solver for a published quantics tensor-train
+Gross--Pitaevskii benchmark (\href{https://arxiv.org/abs/2507.04262}{arXiv:2507.04262}),
+and those drivers survive as \code{tnde.evolve1d}, \code{tnde.evolve2d}, their dense
+oracle \code{tnde.dense} and \code{tnde.observables}. They reproduce the published
+tensors: at $R=30$ on $[-500,500]$, a Gaussian in a harmonic trap plus a fast lattice,
+$g=5$, $\Delta t=0.01$, the bond dimensions match step for step and the overlap with
+the reference state is $1-2\times10^{-10}$ after 100 steps.
+
+They keep the benchmark's conventions, which differ from \code{pde}: a grid that
+includes the endpoint, the finite-difference dispersion
+$-\frac{4M^2}{L^2}\sin^2(\pi k/M)$ instead of $-k^2$, a renormalisation after every
+kinetic step, and a momentum cutoff searched on a Gaussian trial state. Use them to
+reproduce that benchmark; use \code{pde} for everything else. Their physics guide is
+\code{docs/guide.tex}, whose error budget is worth reading before any Schr\"odinger-type
+run: it finds that the momentum window, not the bond dimension, is the leading
+approximation in the 1D benchmark, with the cutoff a factor of six below the momentum
+the lattice drives and the renormalisation hiding the loss.
+
+% ---------------------------------------------------------------------------
+\section{Symbols}
+
+\begin{tabularx}{\textwidth}{@{}lL@{}}
+\toprule
+symbol & meaning \\
+\midrule
+$R$ & bits per space dimension; $2^R$ grid points per axis \\
+$M=2^R$ & grid points per axis \\
+$L$, $\Delta x=L/2^R$ & box length and spacing; the box is periodic and excludes its upper end \\
+$b_r$ & the $r$-th binary digit of a grid index; site $r$ of the train is length scale $L/2^r$ \\
+$\chi$ & bond dimension (rank) of a train; \code{maxdim} is its cap \\
+$\ell(\vk)$ & Fourier symbol of the linear operator, \code{linear} \\
+$p(\vx)$ & local linear coefficient, \code{potential} \\
+$N(u,\vx,t)$ & local nonlinearity, \code{nonlinear}; its exact flow is \code{flow} \\
+$h$, \code{dt} & time step; splitting error $O(h^2)$ \\
+$\kmax=\pi/\Delta x$ & largest representable momentum \\
+$\kcut$, $\beta$ & Fermi--Dirac momentum window position and inverse width \\
+$\tau=it$ & imaginary time; relaxation to the ground state \\
+TCI & tensor cross interpolation: builds a train from function samples at pivots \\
+MPO & matrix product operator: an operator written as a train \\
+\bottomrule
+\end{tabularx}
+
+\end{document}
