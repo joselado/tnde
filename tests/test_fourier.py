@@ -13,8 +13,8 @@ from qutecipy import DiscretizedGrid, CachedFunction, crossinterpolate2, contrac
 from qutecipy.tensortrain.core import reverse
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import tt
-from gptci.fourier import fourier_mpo
+from tnde import tt
+from tnde.fourier import fourier_mpo
 
 R = 10
 M = 1 << R

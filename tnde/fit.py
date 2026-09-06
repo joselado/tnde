@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 from qutecipy.tensortrain.core import TensorTrain
 
-from gptci import tt
+from tnde import tt
 
 
 def _canonicalise_right(cores):

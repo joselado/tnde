@@ -17,7 +17,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import dense, evolve1d, tt
+from tnde import dense, evolve1d, tt
 
 R, XMIN, XMAX, DT = 12, -40.0, 40.0, 0.02
 KCUT, BETA, TOL, MAXDIM, NSTEPS = 2**7, 2.0, 1e-12, 64, 40

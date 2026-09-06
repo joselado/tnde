@@ -6,7 +6,7 @@ import numpy as np
 from qutecipy import DiscretizedGrid, CachedFunction, crossinterpolate2, contract
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import tt
+from tnde import tt
 
 REF = "/home/joselado/Documents/programs/tnde/refdata/ref_mps_1D.npz"
 R, XMIN, XMAX = 30, -500.0, 500.0

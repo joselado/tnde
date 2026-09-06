@@ -21,40 +21,10 @@ import numpy as np
 from qutecipy import contract, crossinterpolate2
 from qutecipy.tensortrain.core import TensorTrain, reverse
 
-from gptci import batcheval, fit, tt
-from gptci.fourier import fourier_mpo
-from gptci.operators import DEFAULT_NSEARCHGLOBALPIVOT, peak_pivots, lowpass
-
-
-# --------------------------------------------------------------------------
-# embedding an MPO into a subset of sites
-# --------------------------------------------------------------------------
-
-def embed_mpo(cores, positions, nsites) -> TensorTrain:
-    """Make an ``len(cores)``-site MPO act on ``positions`` of an ``nsites`` chain.
-
-    The untouched sites get an identity core that also carries the operator's bond
-    through unchanged -- ``I[a, s, s', b] = delta_{ss'} delta_{ab}`` -- so the embedded
-    operator has exactly the original's bond dimension. This is the plain-array
-    equivalent of ITensor's ``matchsiteinds``.
-    """
-    positions = set(int(p) for p in positions)
-    out, bond, ci = [], 1, 0
-    for p in range(nsites):
-        if p in positions:
-            c = np.asarray(cores[ci])
-            out.append(c)
-            bond = c.shape[-1]
-            ci += 1
-        else:
-            I = np.zeros((bond, 2, 2, bond), dtype=np.complex128)
-            idx = np.arange(bond)
-            I[idx, 0, 0, idx] = 1.0
-            I[idx, 1, 1, idx] = 1.0
-            out.append(I)
-    if ci != len(cores):
-        raise ValueError(f"consumed {ci} of {len(cores)} cores")
-    return TensorTrain(out)
+from tnde import batcheval, fit, tt
+from tnde.tt import embed_mpo  # noqa: F401  (re-exported; lived here originally)
+from tnde.fourier import fourier_mpo
+from tnde.operators import DEFAULT_NSEARCHGLOBALPIVOT, peak_pivots, lowpass
 
 
 # --------------------------------------------------------------------------

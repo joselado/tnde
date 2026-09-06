@@ -29,7 +29,7 @@ rank-14 reference state at `maxbonddim=14`, against the untruncated exact produc
 The 6× improvement from hand-canonicalizing confirms the cause. The residual is what a
 single non-variational pass costs: zip-up truncates greedily as it sweeps and never
 revisits, so it does not reach the optimal bond-limited answer even when correctly
-gauged. A variational refinement sweep is the standard remedy — `gptci/fit.py` in this
+gauged. A variational refinement sweep is the standard remedy — `tnde/fit.py` in this
 directory implements one and reaches 5.4e-13 of the optimal truncation.
 
 **Prior art in the same codebase family.** `dmrgpy/src/dmrgpy/pyitensor/mpsalgebra.py::_apply_chain`
@@ -76,9 +76,9 @@ Random pivots make it *worse* because `optfirstpivot` is a greedy coordinate asc
 ## Reproducers in this directory
 
 - `refdata/ref_mps_1D.npz` — the paper's own reference MPS tensors, for a ground truth.
-- `gptci/tt.py::max_error` — checks a tensor train against an independent sample of the
+- `tnde/tt.py::max_error` — checks a tensor train against an independent sample of the
   function it is meant to represent, rather than trusting the reported error.
-- `gptci/fit.py` — two-site variational MPO × MPS fit. Also worth a look for two bugs of
+- `tnde/fit.py` — two-site variational MPO × MPS fit. Also worth a look for two bugs of
   its own that took a while to find: a two-site split that always leaves the
   orthogonality centre on the right destroys environment orthonormality on the return
   sweep (environments overflow to `inf`), and `np.einsum(..., optimize=True)` picks a

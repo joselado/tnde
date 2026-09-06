@@ -13,8 +13,8 @@ import numpy as np
 from qutecipy import contract, crossinterpolate2
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import batcheval, dense, tt
-from gptci.operators import kinetic_mpo_at
+from tnde import batcheval, dense, tt
+from tnde.operators import kinetic_mpo_at
 
 R, XMIN, XMAX, DT, M, BETA, TOL = 12, -40.0, 40.0, 0.05, 1.0, 2.0, 1e-12
 

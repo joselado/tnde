@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import dense
+from tnde import dense
 
 
 def test_harmonic_breathing():

@@ -12,8 +12,8 @@ from qutecipy import contract
 from qutecipy.tensortrain.core import subtract
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import evolve2d, fit
-from gptci.fourier import fourier_mpo
+from tnde import evolve2d, fit
+from tnde.fourier import fourier_mpo
 
 R, TOL, MAXDIM = 6, 1e-12, 200
 PSI0 = lambda x, y: ((1 / np.pi) ** 0.25

@@ -11,8 +11,8 @@ import numpy as np
 from qutecipy import contract
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import dense, evolve2d
-from gptci.fourier import fourier_mpo
+from tnde import dense, evolve2d
+from tnde.fourier import fourier_mpo
 
 R, XMIN, XMAX, YMIN, YMAX = 6, -8.0, 8.0, -8.0, 8.0
 DT, M_, KCUT, BETA, TOL, MAXDIM = 0.02, 1.0, 2**3, 2.0, 1e-12, 200
@@ -99,7 +99,7 @@ def test_moments_match_analytic():
     (which the original uses, and which is limited by a tolerance relative to
     max|x**2|) and direct summation over a reconstructed sample.
     """
-    from gptci import observables
+    from tnde import observables
 
     r, tol = 7, 1e-12
     x0, y0, s = 1.5, -0.8, 1.0

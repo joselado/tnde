@@ -12,7 +12,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, "/home/joselado/Documents/programs/tnde")
-from gptci import evolve1d, observables, tt
+from tnde import evolve1d, observables, tt
 
 R, XMIN, XMAX = 30, -500.0, 500.0
 DT, M, TOL, MAXDIM, G = 0.01, 1.0, 1e-10, 14, 5.0

@@ -14,8 +14,8 @@ already exists in Python:
 | `TensorCrossInterpolation.jl` v0.9.14 | `crossinterpolate2`, `TensorTrain`, `contract(:naive)`, `reverse`, `CachedFunction`, `compress` | **`qutecipy`** (`github.com/joselado/qutecipy`) | ✅ complete, cross-validated against Julia |
 | `QuanticsGrids.jl` v0.3.3 | `DiscretizedGrid`, coordinate ↔ quantics | **`qutecipy.quantics`** | ✅ complete |
 | `ITensorMPS.jl` 0.3.6 | `MPS`/`MPO`, `contract(...; method="fit")` | not needed — see gap 2 | ✅ closed by measurement |
-| `QuanticsTCI.jl` v0.7.0 | `quanticsfouriermpo` | **`gptci.fourier`** | ✅ ported (~40 lines) |
-| `Quantics.jl` v0.4.5 | `fouriertransform` (2D path only) | **`gptci.evolve2d`** | ✅ ported via MPO embedding |
+| `QuanticsTCI.jl` v0.7.0 | `quanticsfouriermpo` | **`tnde.fourier`** | ✅ ported (~40 lines) |
+| `Quantics.jl` v0.4.5 | `fouriertransform` (2D path only) | **`tnde.evolve2d`** | ✅ ported via MPO embedding |
 
 The pinned Julia sources are cloned to `reference_julia/` at exactly the versions
 the paper uses — that is the spec to read when a convention is in question.
@@ -123,7 +123,7 @@ so step-by-step matching against these tensors is a meaningful gate.
 
    In **2D** that reverses. The momentum-space kinetic MPO has rank ~65 against a state
    at `maxdim=50`, so the exact intermediate carries bond dimensions near 3000 and a
-   single application costs 45–240 s — the whole 2D bottleneck. `gptci/fit.py`
+   single application costs 45–240 s — the whole 2D bottleneck. `tnde/fit.py`
    implements the two-site variational sweep:
 
    | R=12, momentum MPO (rank 65) × state (rank 43) | time | agreement |
@@ -173,7 +173,7 @@ so step-by-step matching against these tensors is a meaningful gate.
    single non-variational pass costs: zip-up truncates greedily as it sweeps and never
    revisits, so it does not reach the optimal bond-limited answer even when correctly
    gauged. The standard remedy is a variational refinement sweep — which is exactly what
-   `gptci/fit.py` now does, reaching 5.4e-13 of the optimum where zip-up sits at 4.8e-02.
+   `tnde/fit.py` now does, reaching 5.4e-13 of the optimum where zip-up sits at 4.8e-02.
    Both halves are worth reporting upstream.
 3. **`Quantics.fouriertransform`** (2D path only) — the interleaved-unfolding FT that
    `Fourier_transform_2D` / `kinetic_evolution_2D` use. Expressible via the same QFT
@@ -220,7 +220,7 @@ programs/
     ├── reference_julia/      pinned Julia deps (the spec)
     ├── refdata/              ref_mps_1D.npz + dump_jld2.py
     ├── tests/                the gates
-    └── gptci/                <- the port
+    └── tnde/                <- the port
         ├── config.py         x64 enable  [done]
         ├── dense.py          JAX split-step oracle  [done]
         ├── tt.py             TT_to_MPO, inner, fidelity, normalise, batched eval  [done]
@@ -288,7 +288,7 @@ The fix is to seed both straddling indices `2**(R-1)` and `2**(R-1) - 1`, which 
 opposite MSB branches -- the same "get pivots in non-trivial branches" trick the Julia
 code applies to its low-pass MPO but not to its wave function. With it, 0 runs in 6
 fail. Raising `nsearchglobalpivot` from 5 to 20 also fixes it independently; the port
-does both. `gptci.tt.max_error` exists to check any TCI result against an independent
+does both. `tnde.tt.max_error` exists to check any TCI result against an independent
 sample rather than trusting the reported error.
 
 **2. The same gauge bug, twice.** `qutecipy.contract_zipup` does not right-canonicalize its operands before the
@@ -322,11 +322,11 @@ That combination is **2.3x faster than the Julia route**.
 
 So JAX's place in this port is:
 
-* **`gptci.dense`** -- the split-step oracle, where the arrays are full 2**R FFTs and
+* **`tnde.dense`** -- the split-step oracle, where the arrays are full 2**R FFTs and
   the whole time loop is one `jit`ed `fori_loop`. This is a genuine win and it is what
   makes the oracle cheap enough to gate every other stage against.
-* **an option, not the default**, everywhere else: `gptci.batcheval` and
-  `gptci.tt.evaluate` both take `backend="jax"`, worth revisiting on a GPU or at bond
+* **an option, not the default**, everywhere else: `tnde.batcheval` and
+  `tnde.tt.evaluate` both take `backend="jax"`, worth revisiting on a GPU or at bond
   dimensions far above the 14 this problem uses.
 * **never** inside qutecipy's adaptive TCI sweep, which has dynamic shapes and
   data-dependent branching.

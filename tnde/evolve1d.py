@@ -13,7 +13,7 @@ evolved time of ``(nsteps + 1) * dt``.
 The nonlinearity cannot be applied as a fixed operator -- it depends on the state --
 so each step re-interpolates ``exp(-i g |psi|**2 dt) psi`` from scratch. That is the
 dominant cost per step and the reason the batched, memoising evaluator in
-``gptci.batcheval`` exists.
+``tnde.batcheval`` exists.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import time
 import numpy as np
 from qutecipy import contract, crossinterpolate2
 
-from gptci import batcheval, tt
-from gptci.operators import (DEFAULT_NSEARCHGLOBALPIVOT, exp_potential_mpo,
+from tnde import batcheval, tt
+from tnde.operators import (DEFAULT_NSEARCHGLOBALPIVOT, exp_potential_mpo,
                              kinetic_mpo, kinetic_mpo_at, peak_pivots)
 
 
@@ -40,7 +40,7 @@ def initial_state(psi0, R, xmin, xmax, tolerance):
     bit, and TCI then interpolates only the ``x > 0`` half of the Gaussian in 1 run out
     of 6 -- reporting a converged 7e-11 error while the true error is 1.0. Seeding
     *both* straddling indices ``2**(R-1)`` and ``2**(R-1) - 1``, which lie in opposite
-    MSB branches, removes it. See :func:`gptci.operators.peak_pivots`.
+    MSB branches, removes it. See :func:`tnde.operators.peak_pivots`.
     """
     f = batcheval.grid_function(psi0, R, xmin, xmax)
     centre = 1 << (R - 1)
@@ -59,7 +59,7 @@ def apply_nonlinearity(psi, R, xmin, xmax, g, h, tolerance, maxdim,
     a very wide box, so the default all-zeros pivot sits where the wave function is
     numerically zero and TCI aborts outright ("maxsamplevalue is zero"). Julia avoids
     this via ``quanticscrossinterpolate``'s ``nrandominitpivot=5``; the same seeding is
-    reproduced in :func:`gptci.operators.random_init_pivots`.
+    reproduced in :func:`tnde.operators.random_init_pivots`.
     """
     fn = lambda wf, x: np.exp(-1j * g * np.abs(wf) ** 2 * h) * wf
     f = batcheval.tt_function(psi, fn, R, xmin, xmax, D=maxdim)

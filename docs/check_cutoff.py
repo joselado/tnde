@@ -12,7 +12,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from gptci import dense
+from tnde import dense
 
 
 def dispersion_limit(R=16, L=1000.0):

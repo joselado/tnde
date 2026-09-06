@@ -1,4 +1,4 @@
-% The physics of gptci -- user guide.
+% The Gross-Pitaevskii solver in tnde -- physics user guide.
 % Build:  pdflatex guide.tex && pdflatex guide.tex     (twice, for the TOC)
 \documentclass[11pt,a4paper]{article}
 
@@ -53,8 +53,8 @@
 
 \newcolumntype{L}{>{\RaggedRight\arraybackslash}X}
 
-\title{\textbf{The physics of \texttt{gptci}}\\[2pt]
-  \large The Gross--Pitaevskii equation on quantics tensor trains}
+\title{\textbf{The Gross--Pitaevskii solver in \texttt{tnde}}\\[2pt]
+  \large Physics guide: the equation, the splitting and its error budget on quantics tensor trains}
 \date{}
 
 \begin{document}
@@ -84,7 +84,7 @@ a few seconds by \code{python docs/check\_cutoff.py}, run from the repository ro
 
 \begin{lstlisting}[language=Python]
 import numpy as np
-from gptci import evolve1d, observables
+from tnde import evolve1d, observables
 
 psi0 = lambda x: (1/np.pi)**0.25 * np.exp(-x**2/2)
 pots = [lambda x: 0.01*x**2, lambda x: 5.0*np.sin(10*x)**2]
@@ -98,7 +98,7 @@ width      = observables.width_dense(psi, 30, -500., 500., halfwidth=50.)
 \end{lstlisting}
 
 \noindent
-2D is \code{gptci.evolve2d.evolve}, with the same shape of call plus
+2D is \code{tnde.evolve2d.evolve}, with the same shape of call plus
 \code{ymin}/\code{ymax}. Worked examples reproducing the paper's two configurations
 are \code{examples/reproduce\_paper\_1d.py} and
 \code{examples/reproduce\_paper\_2d.py}; \code{./run\_tests.sh} runs the gates.

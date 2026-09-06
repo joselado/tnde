@@ -1,7 +1,22 @@
-"""Gross-Pitaevskii equation via quantics tensor cross interpolation, in Python/JAX.
+"""Backwards-compatible alias: the package is now called ``tnde``.
 
-A port of https://github.com/MarcelNiedermeier/Gross-Pitaevskii-TCI (arXiv:2507.04262),
-built on ``qutecipy`` (TCI + quantics grids) and ``dmrgpy.pyitensor`` (MPS/MPO).
-See PORTING_NOTES.md for the conventions, the reference data, and the gates.
+``import gptci`` and ``from gptci import evolve1d`` keep working, and resolve to the
+*same* module objects as ``tnde`` (not second copies), so states and operators made
+through either name are interchangeable.
 """
-from gptci import config  # noqa: F401  (must come first: enables x64)
+import importlib
+import sys
+
+import tnde
+
+_SUBMODULES = ("config", "tt", "fourier", "operators", "batcheval", "fit", "dense",
+               "evolve1d", "evolve2d", "observables", "grid", "pde", "equations",
+               "reference")
+
+for _name in _SUBMODULES:
+    _mod = importlib.import_module(f"tnde.{_name}")
+    sys.modules[f"gptci.{_name}"] = _mod
+    globals()[_name] = _mod
+
+__path__ = list(tnde.__path__)
+del _name, _mod, importlib, sys

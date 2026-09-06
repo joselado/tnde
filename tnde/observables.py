@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 from qutecipy import contract
 
-from gptci import tt
-from gptci.operators import pos_mpo, pos_squared_mpo
+from tnde import tt
+from tnde.operators import pos_mpo, pos_squared_mpo
 
 
 def expectation_value(psi, op, R, xmin, xmax, tolerance=1e-10) -> float:
@@ -106,7 +106,7 @@ def reconstruct_2d(psi, R, xmin, xmax, ymin, ymax, prec=8, window=None):
     ``window=(x0, y0, halfwidth)`` zooms in. Note the 2D grid has no
     ``includeendpoint``, so its spacing is ``L/2**R``.
     """
-    from gptci import batcheval
+    from tnde import batcheval
 
     n = 1 << prec
     M = 1 << R
@@ -132,8 +132,8 @@ def density_2d(psi, R, xmin, xmax, ymin, ymax, prec=8, window=None):
 
 def _moment_mpo_2d(f, R, xmin, xmax, ymin, ymax, tolerance):
     from qutecipy import crossinterpolate2
-    from gptci import batcheval
-    from gptci.operators import DEFAULT_NSEARCHGLOBALPIVOT, peak_pivots
+    from tnde import batcheval
+    from tnde.operators import DEFAULT_NSEARCHGLOBALPIVOT, peak_pivots
 
     fn = batcheval.grid_function_2d(lambda x, y: f(x, y).astype(np.complex128),
                                     R, xmin, xmax, ymin, ymax)

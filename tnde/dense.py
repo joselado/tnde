@@ -23,7 +23,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-from gptci import config  # noqa: F401  (enables x64 on import)
+from tnde import config  # noqa: F401  (enables x64 on import)
 
 
 # --------------------------------------------------------------------------

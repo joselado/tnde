@@ -31,7 +31,7 @@ a 6.4x redundancy on the measurement above), so deduplicating is worth more than
 choice of array library. That combination is 2.3x faster than the Julia route.
 
 So the default backend here is NumPy with caching, and JAX is kept as an option
-rather than the default. JAX earns its place elsewhere in this port -- ``gptci.dense``, where the
+rather than the default. JAX earns its place elsewhere in this port -- ``tnde.dense``, where the
 arrays are full 2**R FFTs -- and would be worth revisiting for the tensor-train path
 on a GPU, or at bond dimensions far above the 14 this problem uses.
 """
@@ -104,6 +104,11 @@ class QuanticsBatchFunction(BatchEvaluator):
     def __call__(self, indexset) -> complex:
         return complex(self._call(_setvalues([indexset]))[0])
 
+    def values(self, idx) -> np.ndarray:
+        """Values at an array of flat grid indices -- the batch entry point that
+        :class:`tnde.pde.BatchedGlobalPivotFinder` and the peak search use."""
+        return self._call(np.asarray(idx, dtype=np.int64).ravel())
+
     def batchevaluate(self, leftindexset, rightindexset, ncent: int) -> np.ndarray:
         nl, nr = len(leftindexset), len(rightindexset)
         if nl * nr == 0:
@@ -133,13 +138,29 @@ def _pad(cs, D):
     return out
 
 
+#: Below this many points the per-site gather beats the masked matmuls.
+_SMALL_BATCH = 48
+
+
 def _tt_eval_numpy(pad, idx, R, D):
     """Evaluate a padded train at a batch of indices.
 
-    Splitting the batch on the current bit and doing one dense matmul per branch keeps
-    everything in BLAS; a per-element gather would not.
+    For a large batch, splitting on the current bit and doing one dense matmul per
+    branch keeps everything in BLAS. For a small one -- TCI's pivot searches ask for
+    a dozen points at a time -- the masking overhead dominates, and gathering each
+    point's core into an ``(n, D, D)`` stack and using one batched matmul per site is
+    several times faster.
     """
-    v = np.zeros((idx.size, D), dtype=np.complex128)
+    n_pts = idx.size
+    if n_pts == 1:
+        return np.array([_tt_eval_one(pad, int(idx[0]), R)])
+    if n_pts <= _SMALL_BATCH:
+        bits = (idx[:, None] >> np.arange(R - 1, -1, -1, dtype=np.int64)[None, :]) & 1
+        v = pad[0, 0, bits[:, 0], :][:, None, :]                       # (n, 1, D)
+        for n in range(1, R):
+            v = v @ pad[n][:, bits[:, n], :].transpose(1, 0, 2)       # (n, 1, D)
+        return v[:, 0, 0]
+    v = np.zeros((n_pts, D), dtype=np.complex128)
     v[:, 0] = 1.0
     for n in range(R):
         b = ((idx >> (R - 1 - n)) & 1).astype(bool)
@@ -151,6 +172,19 @@ def _tt_eval_numpy(pad, idx, R, D):
             out[b] = v[b] @ pad[n, :, 1, :]
         v = out
     return v[:, 0]
+
+
+def _tt_eval_one(pad, i: int, R: int) -> complex:
+    """One point of a padded train, by ``R`` vector-matrix products.
+
+    Seven times faster than :func:`_tt_eval_numpy` on a single index: TCI's global
+    pivot search and the greedy peak search evaluate one point at a time, and there
+    the batched routine's masking overhead is all there is.
+    """
+    v = pad[0, 0, (i >> (R - 1)) & 1, :]
+    for n in range(1, R):
+        v = v @ pad[n, :, (i >> (R - 1 - n)) & 1, :]
+    return v[0]
 
 
 def _jax_wrap(fn):
@@ -205,7 +239,7 @@ def tt_function(psi, fn, R: int, xmin: float, xmax: float, D: int | None = None,
     ``D`` is the bond dimension the cores are padded to; pass the run's ``maxdim`` to
     keep the shape (and, under JAX, the compiled kernel) constant across steps.
     """
-    from gptci import tt as _tt
+    from tnde import tt as _tt
 
     cs = _tt.cores(psi)
     need = max(max(c.shape[0] for c in cs), max(c.shape[2] for c in cs))
@@ -302,7 +336,7 @@ def grid_function_2d(fn, R, xmin, xmax, ymin, ymax, cache=True,
 def tt_function_2d(psi, fn, R, xmin, xmax, ymin, ymax, D=None, cache=True,
                    includeendpoint=False) -> QuanticsBatchFunction:
     """TCI-ready evaluator for ``fn(psi(x,y), x, y)`` -- ``apply_f_tt_2D``."""
-    from gptci import tt as _tt
+    from tnde import tt as _tt
 
     cs = _tt.cores(psi)
     need = max(max(c.shape[0] for c in cs), max(c.shape[2] for c in cs))

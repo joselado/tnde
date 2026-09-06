@@ -9,7 +9,7 @@ Everything here follows ``utilities.jl``. Two constructions deserve a note:
 * the low-pass and the kinetic phase live on a *momentum* grid indexed 0..2**R-1, and
   the resulting diagonal MPO has to be sandwiched between forward and inverse quantics
   Fourier MPOs. Because the QFT inverts site order, three ``reverse`` calls are needed
-  and getting any of them wrong fails silently -- see ``gptci.fourier``.
+  and getting any of them wrong fails silently -- see ``tnde.fourier``.
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from qutecipy import crossinterpolate2, optfirstpivot
 from qutecipy.tensortrain.core import reverse
 from scipy.special import expit
 
-from gptci import batcheval, tt
-from gptci.fourier import fourier_mpo
+from tnde import batcheval, tt
+from tnde.fourier import fourier_mpo
 
 #: TCI's own default, and what the Julia code falls back on wherever it omits the
 #: keyword (``exp_lap_Fourier_MPO_lowpass`` accepts a ``tol`` argument and then never

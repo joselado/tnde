@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 from qutecipy import TensorTrain
 
-from gptci import config  # noqa: F401  (enables x64 on import)
+from tnde import config  # noqa: F401  (enables x64 on import)
 
 
 # --------------------------------------------------------------------------
@@ -64,6 +64,37 @@ def tt_to_mpo(obj) -> TensorTrain:
         for b in range(d):
             M[:, b, b, :] = t[:, b, :]
         out.append(M)
+    return TensorTrain(out)
+
+
+# --------------------------------------------------------------------------
+# embedding an MPO into a subset of sites
+# --------------------------------------------------------------------------
+
+def embed_mpo(cores, positions, nsites) -> TensorTrain:
+    """Make an ``len(cores)``-site MPO act on ``positions`` of an ``nsites`` chain.
+
+    The untouched sites get an identity core that also carries the operator's bond
+    through unchanged -- ``I[a, s, s', b] = delta_{ss'} delta_{ab}`` -- so the embedded
+    operator has exactly the original's bond dimension. This is the plain-array
+    equivalent of ITensor's ``matchsiteinds``.
+    """
+    positions = set(int(p) for p in positions)
+    out, bond, ci = [], 1, 0
+    for p in range(nsites):
+        if p in positions:
+            c = np.asarray(cores[ci])
+            out.append(c)
+            bond = c.shape[-1]
+            ci += 1
+        else:
+            I = np.zeros((bond, 2, 2, bond), dtype=np.complex128)
+            idx = np.arange(bond)
+            I[idx, 0, 0, idx] = 1.0
+            I[idx, 1, 1, idx] = 1.0
+            out.append(I)
+    if ci != len(cores):
+        raise ValueError(f"consumed {ci} of {len(cores)} cores")
     return TensorTrain(out)
 
 
@@ -168,7 +199,7 @@ def evaluate(obj, idx, D: int | None = None, backend: str = "numpy") -> np.ndarr
     NumPy is the default because it is the faster one here, by a factor of two even at
     2**20 points in a single call: the cores are at most 14x14, which is far too small
     for XLA's CPU backend to exploit. The JAX path is kept for a GPU, or for bond
-    dimensions much larger than this problem's. See ``gptci.batcheval`` for the
+    dimensions much larger than this problem's. See ``tnde.batcheval`` for the
     measurements.
     """
     cs = cores(obj)
